@@ -39,9 +39,20 @@ Se estiver usando celular físico, troque `10.0.2.2` pelo IP local do computador
 
 Para outro endereço no frontend, defina `EXPO_PUBLIC_API_URL` antes de iniciar o Expo. Para restringir o acesso web à API, defina `FRONTEND_ORIGIN` no backend.
 
+## Acesso por usuário
+
+Ao abrir o app, crie uma conta com nome, e-mail e senha de pelo menos 6 caracteres. Depois do login, cada usuário visualiza e gerencia somente as próprias despesas.
+
+Defina `JWT_SECRET` no `.env` do backend com um segredo forte em ambientes reais.
+
 ## Endpoints
 
+- POST `/api/auth/cadastro`
+- POST `/api/auth/login`
 - POST `/api/financas/despesa`
 - GET `/api/financas/despesas`
+- PATCH `/api/financas/despesa/:id`
 - DELETE `/api/financas/despesa/:id`
 - GET `/health`
+
+As rotas de despesas exigem o header `Authorization: Bearer <token>` retornado pelo login.
