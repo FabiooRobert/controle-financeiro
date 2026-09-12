@@ -2,6 +2,9 @@
   "build": {
     "preview": {
       "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://controle-financeiro-sxz0.onrender.com/api"
+      },
       "android": {
         "buildType": "apk"
       }
