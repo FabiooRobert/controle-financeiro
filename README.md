@@ -1,4 +1,4 @@
-# 💰 Controle Financeiro
+# Controle Financeiro
 
 Projeto completo com React Native + Node.js/Express + MongoDB.
 
@@ -18,6 +18,11 @@ npm install
 Copie `.env.example` para `.env` e ajuste `MONGODB_URI`. `HOST` fica em `0.0.0.0` para permitir acesso pelo emulador ou celular na rede local.
 
 Depois:
+
+
+## 3. Publicação em produção
+
+O projeto pode ser publicado separando o frontend e o backend:
 
 ```bash
 npm run dev

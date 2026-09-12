@@ -3,9 +3,12 @@ import {
   ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View
 } from 'react-native';
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || (
-  Platform.OS === 'android' ? 'http://10.0.2.2:3000/api' : 'http://localhost:3000/api'
-);
+const DEFAULT_API_URL = Platform.OS === 'android'
+  ? 'http://10.0.2.2:3000/api'
+  : 'http://localhost:3000/api';
+
+const API_URL = (process.env.EXPO_PUBLIC_API_URL || DEFAULT_API_URL).replace(/\/+$/, '');
+const API_BASE = API_URL.endsWith('/api') ? API_URL : `${API_URL}/api`;
 const CATEGORIAS = ['Alimentação', 'Transporte', 'Lazer', 'Educação', 'Saúde', 'Outros'];
 
 const moeda = (valor) =>
@@ -42,7 +45,7 @@ export default function App() {
 
     setCarregando(true);
     try {
-      const response = await fetch(`${API_URL}/${modoCadastro ? 'auth/cadastro' : 'auth/login'}`, {
+      const response = await fetch(`${API_BASE}/${modoCadastro ? 'auth/cadastro' : 'auth/login'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nome, email, senha })
@@ -62,7 +65,7 @@ export default function App() {
 
   async function listarDespesas() {
     try {
-      const response = await fetch(`${API_URL}/financas/despesas`, { headers: { Authorization: `Bearer ${token}` } });
+      const response = await fetch(`${API_BASE}/financas/despesas`, { headers: { Authorization: `Bearer ${token}` } });
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.message);
       setDespesas(data.data || []);
@@ -100,7 +103,7 @@ export default function App() {
 
     setCarregando(true);
     try {
-      const response = await fetch(`${API_URL}/financas/despesa`, {
+      const response = await fetch(`${API_BASE}/financas/despesa`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ descricao: descricaoLimpa, valor: numero, categoria: categoriaFinal })
@@ -124,7 +127,7 @@ export default function App() {
 
   async function excluirDespesa(item) {
     try {
-      const response = await fetch(`${API_URL}/financas/despesa/${item._id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+      const response = await fetch(`${API_BASE}/financas/despesa/${item._id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.message);
       await listarDespesas();
@@ -141,7 +144,7 @@ export default function App() {
     }
 
     try {
-      const response = await fetch(`${API_URL}/financas/despesa/${item._id}`, {
+      const response = await fetch(`${API_BASE}/financas/despesa/${item._id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ valor: novoValor })
@@ -157,7 +160,7 @@ export default function App() {
 
   async function atualizarCategoria(item, novaCategoria) {
     try {
-      const response = await fetch(`${API_URL}/financas/despesa/${item._id}`, {
+      const response = await fetch(`${API_BASE}/financas/despesa/${item._id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ categoria: novaCategoria })
