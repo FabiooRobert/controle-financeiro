@@ -6,7 +6,8 @@ const { connectToDatabase } = require('./config/database');
 const apiRoutes = require('./routes/api');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const DEFAULT_PORT = 3000;
+const PORT = Number(process.env.PORT) || DEFAULT_PORT;
 const HOST = process.env.HOST || '0.0.0.0';
 const corsOrigin = process.env.FRONTEND_ORIGIN || true;
 
@@ -14,6 +15,27 @@ app.use(cors({ origin: corsOrigin }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use('/api', apiRoutes);
+
+function listenOnPort(port) {
+  return new Promise((resolve, reject) => {
+    const server = app.listen(port, HOST, () => {
+      console.log(`💰 Servidor financeiro: http://localhost:${port}`);
+      console.log(`🏥 Health: http://localhost:${port}/health`);
+      resolve(server);
+    });
+
+    server.on('error', (error) => {
+      if (error.code === 'EADDRINUSE') {
+        const fallbackPort = port + 1;
+        console.warn(`Porta ${port} ocupada. Tentando ${fallbackPort}...`);
+        resolve(listenOnPort(fallbackPort));
+        return;
+      }
+
+      reject(error);
+    });
+  });
+}
 
 app.get('/health', (req, res) => {
   res.json({
@@ -38,10 +60,7 @@ app.get('/', (req, res) => {
 async function startServer() {
   try {
     await connectToDatabase();
-    app.listen(PORT, HOST, () => {
-      console.log(`💰 Servidor financeiro: http://localhost:${PORT}`);
-      console.log(`🏥 Health: http://localhost:${PORT}/health`);
-    });
+    await listenOnPort(PORT);
   } catch (error) {
     console.error('❌ Erro ao iniciar servidor:', error.message);
     process.exit(1);
