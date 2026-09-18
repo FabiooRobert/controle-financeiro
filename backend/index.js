@@ -9,9 +9,19 @@ const app = express();
 const DEFAULT_PORT = 3000;
 const PORT = Number(process.env.PORT) || DEFAULT_PORT;
 const HOST = process.env.HOST || '0.0.0.0';
-const corsOrigin = process.env.FRONTEND_ORIGIN || true;
+const corsOrigins = (process.env.FRONTEND_ORIGIN || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const allowedCorsOrigins = [
+  'https://controle-financeiro-ruby-mu.vercel.app',
+  ...corsOrigins
+];
 
-app.use(cors({ origin: corsOrigin }));
+app.use(cors({
+  origin: allowedCorsOrigins,
+  credentials: true
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use('/api', apiRoutes);

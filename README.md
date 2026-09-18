@@ -15,6 +15,8 @@ Entre em `backend`:
 npm install
 ```
 
+Se houver mais de uma origem, separe as URLs por vírgula. Inclua a URL da Vercel, por exemplo: `https://controle-financeiro-ruby-mu.vercel.app`.
+
 Copie `.env.example` para `.env` e ajuste `MONGODB_URI`. `HOST` fica em `0.0.0.0` para permitir acesso pelo emulador ou celular na rede local.
 
 Depois:
@@ -89,6 +91,8 @@ Configure `frontend` como **Root Directory**, `npm run build` como Build Command
 ```text
 EXPO_PUBLIC_API_URL=https://seu-backend.onrender.com/api
 ```
+
+Use a URL real exibida no painel do serviço do Render, mantendo `https://` e o sufixo `/api`. Depois de salvar a variável, faça um novo deploy da Vercel: variáveis `EXPO_PUBLIC_*` são incorporadas durante o build do frontend. Se a variável não existir no ambiente de produção, o navegador tentará acessar `localhost:3000` e exibirá `Failed to fetch`.
 
 ### GitHub
 
