@@ -46,6 +46,12 @@ Se estiver usando celular físico, troque `10.0.2.2` pelo IP local do computador
 
 Para outro endereço no frontend, defina `EXPO_PUBLIC_API_URL` antes de iniciar o Expo. Para restringir o acesso web à API, defina `FRONTEND_ORIGIN` no backend.
 
+### Acessibilidade e Libras
+
+O aplicativo oferece tema claro/escuro e escala de fonte de 100%, 125% e 150%, salvando as duas preferências no dispositivo. O ajuste nativo de fonte do sistema operacional continua habilitado. A área **Ajuda em Libras** carrega o widget oficial VLibras na web para traduzir texto renderizado; essa tradução é automática e não foi revisada por intérprete.
+
+No Android/iOS, o player de Libras aceita `EXPO_PUBLIC_LIBRAS_VIDEO_URL`. Configure apenas um vídeo real, autorizado, com orientações sobre acesso à conta e cadastro/edição de despesas, e disponibilize legendas ou transcrição junto ao conteúdo. Esse material não está incluído no repositório; sem a URL configurada, o aplicativo informa essa pendência em vez de apresentar um vídeo genérico. A variável deve ser definida antes do build Expo.
+
 ## 3. Publicação em produção
 
 Arquitetura da P1:

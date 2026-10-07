@@ -1,7 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View
+  ActivityIndicator, Modal, Platform, Pressable, ScrollView, StyleSheet, View
 } from 'react-native';
+import Libras from './a11y/Libras';
+import {
+  AcessibilidadeProvider, AInput, AText, PainelAcessibilidade, useAcessibilidade
+} from './a11y/Acessibilidade';
 
 const webHost = Platform.OS === 'web' && typeof window !== 'undefined'
   ? window.location.hostname
@@ -20,6 +24,24 @@ const moeda = (valor) =>
   `R$ ${Number(valor || 0).toFixed(2).replace('.', ',')}`;
 
 export default function App() {
+  return (
+    <AcessibilidadeProvider>
+      <AplicativoAcessivel />
+    </AcessibilidadeProvider>
+  );
+}
+
+function AplicativoAcessivel() {
+  return (
+    <>
+      {Platform.OS === 'web' && <Libras />}
+      <Financeiro />
+    </>
+  );
+}
+
+function Financeiro() {
+  const { preferencias, cores } = useAcessibilidade();
   const [token, setToken] = useState(null);
   const [modoCadastro, setModoCadastro] = useState(false);
   const [nome, setNome] = useState('');
@@ -36,6 +58,12 @@ export default function App() {
   const [carregando, setCarregando] = useState(false);
   const [valorEditando, setValorEditando] = useState(null);
   const [categoriaEditando, setCategoriaEditando] = useState(null);
+  const [painel, setPainel] = useState(null);
+  const [notificacao, setNotificacao] = useState(null);
+
+  function notificar(titulo, mensagem) {
+    setNotificacao({ titulo, mensagem });
+  }
 
   async function autenticar() {
     setErroAutenticacao('');
@@ -62,7 +90,7 @@ export default function App() {
       setSenha('');
     } catch (error) {
       setErroAutenticacao(error.message || 'E-mail ou senha incorretos.');
-      Alert.alert('Erro', error.message || 'Não foi possível acessar sua conta.');
+      notificar('Erro', error.message || 'Não foi possível acessar sua conta.');
     } finally {
       setCarregando(false);
     }
@@ -76,25 +104,25 @@ export default function App() {
       setDespesas(data.data || []);
       setTotal(Number(data.total || 0));
     } catch (error) {
-      Alert.alert('Erro', 'Não foi possível carregar as despesas. Verifique o servidor.');
+      notificar('Erro', 'Não foi possível carregar as despesas. Verifique o servidor.');
     }
   }
 
   async function cadastrarDespesa() {
     const descricaoLimpa = descricao.trim();
     if (!descricaoLimpa || !valor.trim()) {
-      Alert.alert('Atenção', 'Preencha a descrição e o valor.');
+      notificar('Atenção', 'Preencha a descrição e o valor.');
       return;
     }
 
     if (descricaoLimpa.length < 3 || descricaoLimpa.length > 100) {
-      Alert.alert('Atenção', 'A descrição deve ter entre 3 e 100 caracteres.');
+      notificar('Atenção', 'A descrição deve ter entre 3 e 100 caracteres.');
       return;
     }
 
     const numero = Number(valor.replace(',', '.'));
     if (!Number.isFinite(numero) || numero <= 0) {
-      Alert.alert('Atenção', 'Digite um valor válido.');
+      notificar('Atenção', 'Digite um valor válido.');
       return;
     }
 
@@ -102,7 +130,7 @@ export default function App() {
       ? outraCategoria.trim()
       : categoria;
     if (categoriaFinal.length > 40) {
-      Alert.alert('Atenção', 'A categoria deve ter no máximo 40 caracteres.');
+      notificar('Atenção', 'A categoria deve ter no máximo 40 caracteres.');
       return;
     }
 
@@ -122,9 +150,9 @@ export default function App() {
       setCategoria('Outros');
       setOutraCategoria('');
       await listarDespesas();
-      Alert.alert('Sucesso', data.message);
+      notificar('Sucesso', data.message);
     } catch (error) {
-      Alert.alert('Erro', error.message || 'Erro de conexão com o servidor.');
+      notificar('Erro', error.message || 'Erro de conexão com o servidor.');
     } finally {
       setCarregando(false);
     }
@@ -137,14 +165,14 @@ export default function App() {
       if (!response.ok || !data.success) throw new Error(data.message);
       await listarDespesas();
     } catch (error) {
-      Alert.alert('Erro', error.message || 'Não foi possível excluir.');
+      notificar('Erro', error.message || 'Não foi possível excluir.');
     }
   }
 
   async function atualizarValor(item, valorAtual) {
     const novoValor = Number(String(valorAtual).replace(',', '.'));
     if (!Number.isFinite(novoValor) || novoValor <= 0) {
-      Alert.alert('Atenção', 'Digite um valor válido.');
+      notificar('Atenção', 'Digite um valor válido.');
       return;
     }
 
@@ -159,7 +187,7 @@ export default function App() {
       setValorEditando(null);
       await listarDespesas();
     } catch (error) {
-      Alert.alert('Erro', error.message || 'Não foi possível atualizar o valor.');
+      notificar('Erro', error.message || 'Não foi possível atualizar o valor.');
     }
   }
 
@@ -175,7 +203,7 @@ export default function App() {
       setCategoriaEditando(null);
       await listarDespesas();
     } catch (error) {
-      Alert.alert('Erro', error.message || 'Não foi possível atualizar a categoria.');
+      notificar('Erro', error.message || 'Não foi possível atualizar a categoria.');
     }
   }
 
@@ -183,47 +211,82 @@ export default function App() {
 
   if (!token) {
     return (
-      <View style={styles.authContainer}>
-        <Text style={styles.emoji}>💰</Text>
-        <Text style={styles.titulo}>Controle Financeiro</Text>
-        <Text style={styles.subtitulo}>{modoCadastro ? 'Crie sua conta' : 'Entre para ver suas despesas'}</Text>
-        <View style={styles.authCard}>
-          {modoCadastro && <TextInput style={styles.input} placeholder="Seu nome" value={nome} onChangeText={setNome} />}
-          <TextInput style={styles.input} placeholder="E-mail" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
-          <TextInput style={styles.input} placeholder="Senha (mínimo 6 caracteres)" value={senha} onChangeText={setSenha} secureTextEntry />
-          {erroAutenticacao ? <Text style={styles.erroAutenticacao}>{erroAutenticacao}</Text> : null}
-          <Pressable style={styles.botao} onPress={autenticar} disabled={carregando}>
-            {carregando ? <ActivityIndicator color="#fff" /> : <Text style={styles.botaoTexto}>{modoCadastro ? 'CRIAR CONTA' : 'ENTRAR'}</Text>}
+      <ScrollView
+        style={[styles.container, { backgroundColor: cores.fundo }]}
+        contentContainerStyle={styles.authContainer}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.acessibilidadeAcoes}>
+          <Pressable accessibilityRole="button" onPress={() => setPainel('ajustes')} style={styles.linkBotao}>
+            <AText style={styles.link}>Acessibilidade</AText>
           </Pressable>
-          <Pressable onPress={() => setModoCadastro(!modoCadastro)}>
-            <Text style={styles.link}>{modoCadastro ? 'Já tenho uma conta' : 'Criar uma conta'}</Text>
+          <Pressable accessibilityRole="button" onPress={() => setPainel('libras')} style={styles.linkBotao}>
+            <AText style={styles.link}>Ajuda em Libras</AText>
           </Pressable>
         </View>
-      </View>
+        <AText style={styles.emoji}>💰</AText>
+        <AText accessibilityRole="header" style={styles.titulo}>Controle Financeiro</AText>
+        <AText style={styles.subtitulo}>{modoCadastro ? 'Crie sua conta' : 'Entre para ver suas despesas'}</AText>
+        <View style={[styles.authCard, { backgroundColor: cores.superficie }]}>
+          {modoCadastro && (
+            <AInput
+              accessibilityLabel="Seu nome"
+              style={styles.input}
+              placeholder="Seu nome"
+              value={nome}
+              onChangeText={setNome}
+            />
+          )}
+          <AInput accessibilityLabel="E-mail" style={styles.input} placeholder="E-mail" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
+          <AInput accessibilityLabel="Senha" style={styles.input} placeholder="Senha (mínimo 6 caracteres)" value={senha} onChangeText={setSenha} secureTextEntry />
+          {erroAutenticacao ? <AText accessibilityRole="alert" style={styles.erroAutenticacao}>{erroAutenticacao}</AText> : null}
+          <Pressable style={styles.botao} onPress={autenticar} disabled={carregando}>
+            {carregando ? <ActivityIndicator color="#fff" /> : <AText style={styles.botaoTexto}>{modoCadastro ? 'CRIAR CONTA' : 'ENTRAR'}</AText>}
+          </Pressable>
+          <Pressable onPress={() => setModoCadastro(!modoCadastro)}>
+            <AText style={styles.link}>{modoCadastro ? 'Já tenho uma conta' : 'Criar uma conta'}</AText>
+          </Pressable>
+        </View>
+        <AcessibilidadeModais
+          painel={painel}
+          setPainel={setPainel}
+          notificacao={notificacao}
+          fecharNotificacao={() => setNotificacao(null)}
+        />
+      </ScrollView>
     );
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.emoji}>💰</Text>
-      <Text style={styles.titulo}>Controle Financeiro</Text>
-      <Text style={styles.subtitulo}>Organize suas despesas</Text>
+    <ScrollView style={[styles.container, { backgroundColor: cores.fundo }]} contentContainerStyle={styles.content}>
+      <View style={styles.acessibilidadeAcoes}>
+        <Pressable accessibilityRole="button" onPress={() => setPainel('ajustes')} style={styles.linkBotao}>
+          <AText style={styles.link}>Acessibilidade</AText>
+        </Pressable>
+        <Pressable accessibilityRole="button" onPress={() => setPainel('libras')} style={styles.linkBotao}>
+          <AText style={styles.link}>Ajuda em Libras</AText>
+        </Pressable>
+      </View>
+      <AText style={styles.emoji}>💰</AText>
+      <AText accessibilityRole="header" style={styles.titulo}>Controle Financeiro</AText>
+      <AText style={styles.subtitulo}>Organize suas despesas</AText>
       <View style={styles.usuarioLinha}>
-        <Text style={styles.usuarioTexto}>Olá, {usuarioNome}</Text>
-        <Pressable onPress={() => setToken(null)}><Text style={styles.sair}>Sair</Text></Pressable>
+        <AText style={styles.usuarioTexto}>Olá, {usuarioNome}</AText>
+        <Pressable accessibilityRole="button" accessibilityLabel="Sair da conta" onPress={() => setToken(null)}><AText style={styles.sair}>Sair</AText></Pressable>
       </View>
 
-      <View style={styles.totalCard}>
-        <Text style={styles.totalLabel}>TOTAL DE DESPESAS</Text>
-        <Text style={styles.total}>{moeda(total)}</Text>
-        <Text style={styles.quantidade}>{despesas.length} {despesas.length === 1 ? 'despesa' : 'despesas'} cadastradas</Text>
+      <View style={[styles.totalCard, { backgroundColor: cores.cartaoTotal }]}>
+        <AText style={styles.totalLabel}>TOTAL DE DESPESAS</AText>
+        <AText style={styles.total}>{moeda(total)}</AText>
+        <AText style={styles.quantidade}>{despesas.length} {despesas.length === 1 ? 'despesa' : 'despesas'} cadastradas</AText>
       </View>
 
-      <View style={styles.card}>
+      <View style={[styles.card, { backgroundColor: cores.superficie }]}>
         <View style={styles.formLinha}>
           <View style={styles.descricaoCampo}>
-            <Text style={styles.label}>Descrição</Text>
-            <TextInput
+            <AText style={styles.label}>Descrição</AText>
+            <AInput
+              accessibilityLabel="Descrição da despesa"
               style={styles.input}
               placeholder="Ex.: Supermercado"
               value={descricao}
@@ -233,20 +296,24 @@ export default function App() {
             />
           </View>
           <View style={styles.categoriaCampo}>
-            <Text style={styles.label}>Categoria</Text>
+            <AText style={styles.label}>Categoria</AText>
             <View style={styles.categorias}>
               {CATEGORIAS.map((item) => (
                 <React.Fragment key={item}>
                   <Pressable
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: categoria === item }}
+                    aria-pressed={categoria === item}
                     onPress={() => setCategoria(item)}
                     style={[styles.categoria, categoria === item && styles.categoriaAtiva]}
                   >
-                    <Text style={[styles.categoriaTexto, categoria === item && styles.categoriaTextoAtiva]}>
-                      {item}
-                    </Text>
+                    <AText style={[styles.categoriaTexto, categoria === item && styles.categoriaTextoAtiva]}>
+                      {categoria === item ? `✓ ${item}` : item}
+                    </AText>
                   </Pressable>
                   {item === 'Outros' && categoria === 'Outros' && (
-                    <TextInput
+                    <AInput
+                      accessibilityLabel="Outra categoria"
                       style={styles.outraCategoriaInput}
                       placeholder="Digite outra categoria"
                       value={outraCategoria}
@@ -263,10 +330,11 @@ export default function App() {
 
         <View style={styles.valorLinha}>
           <View style={styles.valorCampo}>
-            <Text style={styles.label}>Valor</Text>
-            <View style={styles.valorInput}>
-              <Text style={styles.prefixoMoeda}>R$</Text>
-              <TextInput
+            <AText style={styles.label}>Valor</AText>
+            <View style={[styles.valorInput, { backgroundColor: cores.campo, borderColor: cores.borda }]}>
+              <AText style={styles.prefixoMoeda}>R$</AText>
+              <AInput
+                accessibilityLabel="Valor da despesa em reais"
                 style={styles.inputValor}
                 placeholder="0,00"
                 value={valor}
@@ -279,45 +347,49 @@ export default function App() {
         </View>
 
         <Pressable style={styles.botao} onPress={cadastrarDespesa} disabled={carregando}>
-          {carregando ? <ActivityIndicator color="#fff" /> : <Text style={styles.botaoTexto}>+ CADASTRAR DESPESA</Text>}
+          {carregando ? <ActivityIndicator color="#fff" /> : <AText style={styles.botaoTexto}>+ CADASTRAR DESPESA</AText>}
         </Pressable>
       </View>
 
-      <Text style={styles.listaTitulo}>📋 Despesas cadastradas</Text>
+      <AText accessibilityRole="header" style={styles.listaTitulo}>📋 Despesas cadastradas</AText>
 
       {despesas.length === 0 ? (
-        <View style={styles.vazio}>
-          <Text style={styles.vazioTexto}>Nenhuma despesa cadastrada.</Text>
+        <View style={[styles.vazio, { backgroundColor: cores.superficie }]}>
+          <AText style={styles.vazioTexto}>Nenhuma despesa cadastrada.</AText>
         </View>
       ) : despesas.map((item) => (
-        <View style={styles.item} key={item._id}>
+        <View style={[styles.item, { backgroundColor: cores.superficie }]} key={item._id}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.itemDescricao}>{item.descricao}</Text>
+            <AText style={styles.itemDescricao}>{item.descricao}</AText>
             {categoriaEditando === item._id ? (
               <View style={styles.categoriasEdicao}>
                 {CATEGORIAS.map((opcao) => (
                   <Pressable
                     key={opcao}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: opcao === item.categoria }}
+                    aria-pressed={opcao === item.categoria}
                     onPress={() => atualizarCategoria(item, opcao)}
                     style={[styles.categoria, opcao === item.categoria && styles.categoriaAtiva]}
                   >
-                    <Text style={[styles.categoriaTexto, opcao === item.categoria && styles.categoriaTextoAtiva]}>
-                      {opcao}
-                    </Text>
+                    <AText style={[styles.categoriaTexto, opcao === item.categoria && styles.categoriaTextoAtiva]}>
+                      {opcao === item.categoria ? `✓ ${opcao}` : opcao}
+                    </AText>
                   </Pressable>
                 ))}
               </View>
             ) : (
-              <Pressable onPress={() => setCategoriaEditando(item._id)}>
-                <Text style={styles.itemCategoria}>{item.categoria || 'Outros'}</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel={`Editar categoria ${item.categoria || 'Outros'}`} onPress={() => setCategoriaEditando(item._id)}>
+                <AText style={styles.itemCategoria}>{item.categoria || 'Outros'}</AText>
               </Pressable>
             )}
           </View>
           <View style={styles.itemDireita}>
             {valorEditando === item._id ? (
-              <View style={styles.valorEdicao}>
-                <Text style={styles.prefixoMoeda}>R$</Text>
-                <TextInput
+              <View style={[styles.valorEdicao, { borderColor: cores.borda }]}>
+                <AText style={styles.prefixoMoeda}>R$</AText>
+                <AInput
+                  accessibilityLabel={`Novo valor para ${item.descricao}`}
                   style={styles.inputEdicao}
                   defaultValue={String(item.valor).replace('.', ',')}
                   keyboardType="decimal-pad"
@@ -327,30 +399,101 @@ export default function App() {
                 />
               </View>
             ) : (
-              <Text style={styles.itemValor}>{moeda(item.valor)}</Text>
+              <AText style={styles.itemValor}>{moeda(item.valor)}</AText>
             )}
             <View style={styles.acoes}>
-              <Pressable onPress={() => setValorEditando(item._id)}>
-                <Text style={styles.editar}>Editar</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel={`Editar valor de ${item.descricao}`} onPress={() => setValorEditando(item._id)}>
+                <AText style={styles.editar}>Editar</AText>
               </Pressable>
-              <Pressable onPress={() => excluirDespesa(item)}>
-                <Text style={styles.excluir}>Excluir</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel={`Excluir ${item.descricao}`} onPress={() => excluirDespesa(item)}>
+                <AText style={styles.excluir}>Excluir</AText>
               </Pressable>
             </View>
           </View>
         </View>
       ))}
+      <AcessibilidadeModais
+        painel={painel}
+        setPainel={setPainel}
+        notificacao={notificacao}
+        fecharNotificacao={() => setNotificacao(null)}
+      />
     </ScrollView>
+  );
+}
+
+function AcessibilidadeModais({ painel, setPainel, notificacao, fecharNotificacao }) {
+  const { cores } = useAcessibilidade();
+  return (
+    <>
+      <Modal
+        visible={!!painel}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setPainel(null)}
+        statusBarTranslucent
+      >
+        <View style={styles.modalFundo}>
+          <View style={[styles.modalCartao, { backgroundColor: cores.superficie, borderColor: cores.borda }]}>
+            <View style={[styles.modalCabecalho, { borderBottomColor: cores.borda }]}>
+              <AText accessibilityRole="header" style={styles.modalTitulo}>
+                {painel === 'ajustes' ? 'Acessibilidade' : 'Ajuda em Libras'}
+              </AText>
+              <Pressable accessibilityRole="button" accessibilityLabel="Fechar painel" onPress={() => setPainel(null)} style={styles.fecharBotao}>
+                <AText style={{ fontWeight: '700' }}>Fechar</AText>
+              </Pressable>
+            </View>
+            {painel === 'ajustes'
+              ? <PainelAcessibilidade />
+              : (
+                <ScrollView contentContainerStyle={styles.ajudaConteudo}>
+                  <AText>
+                    Orientações sobre acesso à conta, cadastro de despesas e atualização de valores e categorias.
+                  </AText>
+                  {Platform.OS === 'web' ? (
+                    <AText>
+                      Use o botão flutuante acessível do VLibras para traduzir o conteúdo visível,
+                      incluindo esta área de ajuda. A tradução é automática e não foi validada por intérprete.
+                    </AText>
+                  ) : <Libras />}
+                </ScrollView>
+              )}
+          </View>
+        </View>
+      </Modal>
+      <Modal
+        visible={!!notificacao}
+        animationType="fade"
+        transparent
+        onRequestClose={fecharNotificacao}
+      >
+        <View style={styles.modalFundo}>
+          <View
+            accessibilityRole="alert"
+            accessibilityViewIsModal
+            style={[styles.avisoCartao, { backgroundColor: cores.superficie, borderColor: cores.borda }]}
+          >
+            <AText accessibilityRole="header" style={styles.modalTitulo}>{notificacao?.titulo}</AText>
+            <AText>{notificacao?.mensagem}</AText>
+            <Pressable accessibilityRole="button" onPress={fecharNotificacao} style={styles.botao}>
+              <AText style={styles.botaoTexto}>Fechar aviso</AText>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f4f7f6' },
-  content: { padding: 22, paddingTop: 55, paddingBottom: 45 },
-  authContainer: { flex: 1, backgroundColor: '#f4f7f6', padding: 22, justifyContent: 'center', alignItems: 'center' },
+  content: { padding: 22, paddingTop: 36, paddingBottom: 45 },
+  authContainer: { flexGrow: 1, padding: 22, justifyContent: 'center', alignItems: 'center' },
   authCard: { width: '100%', maxWidth: 420, backgroundColor: '#fff', padding: 18, borderRadius: 18, marginTop: 18, gap: 12 },
   erroAutenticacao: { color: '#b43b3b', textAlign: 'center', fontWeight: '700' },
   link: { color: '#19352b', textAlign: 'center', fontWeight: '700', padding: 10 },
+  acessibilidadeAcoes: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8, width: '100%', marginBottom: 12 },
+  linkBotao: { minHeight: 48, justifyContent: 'center', borderWidth: 1, borderColor: '#cbd7d2', borderRadius: 10 },
   usuarioLinha: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 },
   usuarioTexto: { color: '#52645d', fontWeight: '700' },
   sair: { color: '#b43b3b', fontWeight: '700' },
@@ -362,18 +505,18 @@ const styles = StyleSheet.create({
   total: { color: '#fff', fontSize: 31, fontWeight: '800', marginTop: 5 },
   quantidade: { color: '#d7e6df', marginTop: 5 },
   card: { backgroundColor: '#fff', padding: 18, borderRadius: 18, marginBottom: 25 },
-  formLinha: { flexDirection: 'row', gap: 10 },
-  descricaoCampo: { flex: 1 },
-  categoriaCampo: { width: '45%' },
+  formLinha: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  descricaoCampo: { flex: 1, minWidth: 180 },
+  categoriaCampo: { flexGrow: 1, flexBasis: '42%', minWidth: 170 },
   valorLinha: { alignItems: 'flex-start' },
-  valorCampo: { width: 125 },
+  valorCampo: { minWidth: 125, maxWidth: '100%' },
   label: { color: '#30483e', fontWeight: '700', marginBottom: 7, marginTop: 7 },
   input: { borderWidth: 1, borderColor: '#dce5e1', borderRadius: 11, padding: 14, fontSize: 16, backgroundColor: '#fafcfb' },
   valorInput: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#dce5e1', borderRadius: 11, backgroundColor: '#fafcfb', paddingLeft: 14 },
   prefixoMoeda: { color: '#30483e', fontSize: 16, fontWeight: '700' },
   inputValor: { flex: 1, padding: 14, paddingLeft: 8, fontSize: 16 },
   categorias: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 15 },
-  outraCategoriaInput: { width: 145, borderWidth: 1, borderColor: '#dce5e1', borderRadius: 20, paddingVertical: 9, paddingHorizontal: 12, fontSize: 13, backgroundColor: '#fafcfb' },
+  outraCategoriaInput: { minWidth: 145, flexGrow: 1, borderWidth: 1, borderColor: '#dce5e1', borderRadius: 20, paddingVertical: 9, paddingHorizontal: 12, fontSize: 13, backgroundColor: '#fafcfb' },
   categoria: { borderWidth: 1, borderColor: '#d5dfdb', borderRadius: 20, paddingVertical: 9, paddingHorizontal: 12 },
   categoriaAtiva: { backgroundColor: '#19352b', borderColor: '#19352b' },
   categoriaTexto: { color: '#52645d', fontSize: 13 },
@@ -381,16 +524,23 @@ const styles = StyleSheet.create({
   botao: { backgroundColor: '#19352b', borderRadius: 11, paddingVertical: 12, paddingHorizontal: 16, alignSelf: 'flex-start', alignItems: 'center', marginTop: 5 },
   botaoTexto: { color: '#fff', fontWeight: '800' },
   listaTitulo: { fontSize: 21, fontWeight: '800', color: '#19352b', marginBottom: 12 },
-  item: { backgroundColor: '#fff', borderRadius: 15, padding: 16, marginBottom: 10, flexDirection: 'row', alignItems: 'center' },
+  item: { backgroundColor: '#fff', borderRadius: 15, padding: 16, marginBottom: 10, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: 10 },
   itemDescricao: { fontSize: 17, fontWeight: '800', color: '#253b33' },
   itemCategoria: { color: '#7b8a84', marginTop: 4, fontSize: 13 },
-  itemDireita: { alignItems: 'flex-end', marginLeft: 10 },
+  itemDireita: { alignItems: 'flex-start', marginLeft: 'auto', maxWidth: '100%' },
   valorEdicao: { flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#dce5e1', borderRadius: 8, paddingLeft: 8 },
-  inputEdicao: { width: 72, padding: 7, paddingLeft: 4, fontSize: 15 },
+  inputEdicao: { minWidth: 90, maxWidth: 160, padding: 7, paddingLeft: 4, fontSize: 15 },
   acoes: { flexDirection: 'row', gap: 12, marginTop: 7 },
   itemValor: { color: '#b43b3b', fontWeight: '800', fontSize: 16 },
   editar: { color: '#19352b', fontSize: 13, fontWeight: '700' },
   excluir: { color: '#b43b3b', marginTop: 7, fontSize: 13, fontWeight: '700' },
   vazio: { backgroundColor: '#fff', borderRadius: 15, padding: 22 },
-  vazioTexto: { textAlign: 'center', color: '#7b8a84' }
+  vazioTexto: { textAlign: 'center', color: '#7b8a84' },
+  modalFundo: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 16, backgroundColor: 'rgba(0,0,0,0.6)' },
+  modalCartao: { width: '100%', maxWidth: 560, maxHeight: '90%', borderWidth: 1, borderRadius: 18, overflow: 'hidden' },
+  modalCabecalho: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: 16, borderBottomWidth: 1, borderBottomColor: '#cbd7d2' },
+  modalTitulo: { fontSize: 21, fontWeight: '800', flexShrink: 1 },
+  fecharBotao: { minHeight: 48, minWidth: 64, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10 },
+  ajudaConteudo: { padding: 20, gap: 16 },
+  avisoCartao: { width: '100%', maxWidth: 440, borderWidth: 1, borderRadius: 16, padding: 20, gap: 16 }
 });
