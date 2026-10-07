@@ -85,7 +85,7 @@ Configure no painel do Render:
 MONGODB_URI=mongodb+srv://...
 JWT_SECRET=um-segredo-forte-e-aleatorio
 NODE_ENV=production
-FRONTEND_ORIGIN=https://seu-projeto.vercel.app
+FRONTEND_ORIGIN=https://controle-financeiro-ruby-mu.vercel.app
 ```
 
 O Render fornece `PORT` automaticamente. Após o deploy, `/health` deve retornar `{"status":"OK"}`.
@@ -95,7 +95,7 @@ O Render fornece `PORT` automaticamente. Após o deploy, `/health` deve retornar
 Configure `frontend` como **Root Directory**, `npm run build` como Build Command e `dist` como Output Directory. Adicione:
 
 ```text
-EXPO_PUBLIC_API_URL=https://seu-backend.onrender.com/api
+EXPO_PUBLIC_API_URL=https://controle-financeiro-1-g7xw.onrender.com/api
 ```
 
 Use a URL real exibida no painel do serviço do Render, mantendo `https://` e o sufixo `/api`. Depois de salvar a variável, faça um novo deploy da Vercel: variáveis `EXPO_PUBLIC_*` são incorporadas durante o build do frontend. Se a variável não existir no ambiente de produção, o navegador tentará acessar `localhost:3000` e exibirá `Failed to fetch`.

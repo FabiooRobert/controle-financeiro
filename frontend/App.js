@@ -14,7 +14,7 @@ const DEFAULT_API_URL = __DEV__
   ? (Platform.OS === 'android'
     ? 'http://10.0.2.2:3000/api'
     : `http://${webHost}:3000/api`)
-  : 'https://controle-financeiro-api.onrender.com/api';
+  : 'https://controle-financeiro-1-g7xw.onrender.com/api';
 
 const API_URL = (process.env.EXPO_PUBLIC_API_URL || DEFAULT_API_URL).replace(/\/+$/, '');
 const API_BASE = API_URL.endsWith('/api') ? API_URL : `${API_URL}/api`;
