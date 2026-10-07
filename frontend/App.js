@@ -224,9 +224,11 @@ function Financeiro() {
             <AText style={styles.link}>Ajuda em Libras</AText>
           </Pressable>
         </View>
-        <AText style={styles.emoji}>💰</AText>
-        <AText accessibilityRole="header" style={styles.titulo}>Controle Financeiro</AText>
-        <AText style={styles.subtitulo}>{modoCadastro ? 'Crie sua conta' : 'Entre para ver suas despesas'}</AText>
+        <View style={styles.authHeader}>
+          <AText style={styles.emoji}>💰</AText>
+          <AText accessibilityRole="header" style={styles.titulo}>Controle Financeiro</AText>
+          <AText style={styles.subtitulo}>{modoCadastro ? 'Crie sua conta' : 'Entre para ver suas despesas'}</AText>
+        </View>
         <View style={[styles.authCard, { backgroundColor: cores.superficie }]}>
           {modoCadastro && (
             <AInput
@@ -489,7 +491,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f4f7f6' },
   content: { padding: 22, paddingTop: 36, paddingBottom: 45 },
   authContainer: { flexGrow: 1, padding: 22, justifyContent: 'center', alignItems: 'center' },
-  authCard: { width: '100%', maxWidth: 420, backgroundColor: '#fff', padding: 18, borderRadius: 18, marginTop: 18, gap: 12 },
+  authHeader: { width: '100%', maxWidth: 480, alignItems: 'center', marginBottom: 18 },
+  authCard: { width: '100%', maxWidth: 420, backgroundColor: '#fff', padding: 18, borderRadius: 18, gap: 12 },
   erroAutenticacao: { color: '#b43b3b', textAlign: 'center', fontWeight: '700' },
   link: { color: '#19352b', textAlign: 'center', fontWeight: '700', padding: 10 },
   acessibilidadeAcoes: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8, width: '100%', marginBottom: 12 },
@@ -497,9 +500,9 @@ const styles = StyleSheet.create({
   usuarioLinha: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 },
   usuarioTexto: { color: '#52645d', fontWeight: '700' },
   sair: { color: '#b43b3b', fontWeight: '700' },
-  emoji: { fontSize: 42, textAlign: 'center' },
-  titulo: { fontSize: 30, fontWeight: '800', textAlign: 'center', color: '#19352b' },
-  subtitulo: { textAlign: 'center', color: '#718078', marginTop: 5, marginBottom: 22, fontSize: 16 },
+  emoji: { fontSize: 42, textAlign: 'center', marginBottom: 8 },
+  titulo: { fontSize: 30, lineHeight: 38, fontWeight: '800', textAlign: 'center', color: '#19352b' },
+  subtitulo: { textAlign: 'center', color: '#718078', marginTop: 10, fontSize: 16 },
   totalCard: { backgroundColor: '#19352b', borderRadius: 18, padding: 22, marginBottom: 18 },
   totalLabel: { color: '#b9d2c8', fontSize: 12, fontWeight: '700' },
   total: { color: '#fff', fontSize: 31, fontWeight: '800', marginTop: 5 },
