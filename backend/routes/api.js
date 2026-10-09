@@ -12,7 +12,21 @@ function criarToken(usuario) {
   return jwt.sign({ id: usuario._id, nome: usuario.nome, email: usuario.email }, process.env.JWT_SECRET, { expiresIn: '7d' });
 }
 
+function exigirSegredoJwt(res) {
+  const segredo = process.env.JWT_SECRET;
+  if (typeof segredo === 'string' && segredo.trim().length >= 32) return true;
+
+  console.error('JWT_SECRET ausente ou muito curto; autenticação indisponível');
+  res.status(503).json({
+    success: false,
+    message: 'Autenticação indisponível: configure JWT_SECRET com pelo menos 32 caracteres nas variáveis do Render.'
+  });
+  return false;
+}
+
 function autenticar(req, res, next) {
+  if (!exigirSegredoJwt(res)) return;
+
   const autorizacao = req.headers.authorization || '';
   const token = autorizacao.startsWith('Bearer ') ? autorizacao.slice(7) : null;
   if (!token) return res.status(401).json({ success: false, message: 'Faça login para continuar' });
@@ -27,6 +41,8 @@ function autenticar(req, res, next) {
 
 router.post('/auth/cadastro', async (req, res) => {
   try {
+    if (!exigirSegredoJwt(res)) return;
+
     const nome = String(req.body.nome || '').trim();
     const email = String(req.body.email || '').trim().toLowerCase();
     const senha = String(req.body.senha || '');
@@ -41,12 +57,17 @@ router.post('/auth/cadastro', async (req, res) => {
     res.status(201).json({ success: true, data: { token: criarToken(usuario), usuario: { nome, email } } });
   } catch (error) {
     console.error(error);
+    if (error.code === 11000) {
+      return res.status(409).json({ success: false, message: 'Este e-mail já está cadastrado' });
+    }
     res.status(500).json({ success: false, message: 'Erro ao criar cadastro' });
   }
 });
 
 router.post('/auth/login', async (req, res) => {
   try {
+    if (!exigirSegredoJwt(res)) return;
+
     const email = String(req.body.email || '').trim().toLowerCase();
     const senha = String(req.body.senha || '');
     const usuario = await Usuario.findOne({ email });
