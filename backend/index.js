@@ -15,11 +15,31 @@ const corsOrigins = (process.env.FRONTEND_ORIGIN || '')
   .filter(Boolean);
 const allowedCorsOrigins = [
   'https://controle-financeiro-ruby-mu.vercel.app',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'http://localhost:8081',
+  'http://127.0.0.1:8081',
+  'http://10.0.2.2:3000',
   ...corsOrigins
 ];
 
 app.use(cors({
-  origin: allowedCorsOrigins,
+  origin: (origin, callback) => {
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+
+    const normalizedOrigin = origin.toLowerCase();
+    const isLocalDevelopmentOrigin = /^https?:\/\/(localhost|127\.0\.0\.1|10\.0\.2\.2)(:\d+)?$/.test(normalizedOrigin);
+
+    if (allowedCorsOrigins.includes(normalizedOrigin) || isLocalDevelopmentOrigin) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error('Origin não permitida pelo CORS'));
+  },
   credentials: true
 }));
 app.use(express.json());
