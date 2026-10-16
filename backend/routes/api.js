@@ -5,11 +5,33 @@ const jwt = require('jsonwebtoken');
 const router = express.Router();
 const Despesa = require('../models/Despesa');
 const Usuario = require('../models/Usuario');
+const Sessao = require('../models/Sessao');
+const Mensagem = require('../models/Mensagem');
+const PushToken = require('../models/PushToken');
 
 const categorias = ['Alimentação', 'Transporte', 'Lazer', 'Educação', 'Saúde', 'Outros'];
 
-function criarToken(usuario) {
-  return jwt.sign({ id: usuario._id, nome: usuario.nome, email: usuario.email }, process.env.JWT_SECRET, { expiresIn: '7d' });
+function criarToken(usuario, sessaoId) {
+  return jwt.sign({
+    id: usuario._id,
+    nome: usuario.nome,
+    email: usuario.email,
+    sid: sessaoId
+  }, process.env.JWT_SECRET, { expiresIn: '7d' });
+}
+
+async function criarSessao(usuario) {
+  const agora = Date.now();
+  const sessao = await Sessao.create({
+    usuario: usuario._id,
+    ativaAte: new Date(agora + 2 * 60 * 1000),
+    expiraEm: new Date(agora + 7 * 24 * 60 * 60 * 1000)
+  });
+
+  return {
+    token: criarToken(usuario, sessao._id),
+    usuario: { id: String(usuario._id), nome: usuario.nome, email: usuario.email }
+  };
 }
 
 function exigirSegredoJwt(res) {
@@ -31,12 +53,32 @@ function autenticar(req, res, next) {
   const token = autorizacao.startsWith('Bearer ') ? autorizacao.slice(7) : null;
   if (!token) return res.status(401).json({ success: false, message: 'Faça login para continuar' });
 
+  let usuario;
   try {
-    req.usuario = jwt.verify(token, process.env.JWT_SECRET);
-    next();
+    usuario = jwt.verify(token, process.env.JWT_SECRET);
   } catch (error) {
-    res.status(401).json({ success: false, message: 'Sessão inválida ou expirada' });
+    return res.status(401).json({ success: false, message: 'Sessão inválida ou expirada' });
   }
+
+  if (!usuario.sid) {
+    return res.status(401).json({ success: false, message: 'Sessão inválida ou expirada' });
+  }
+
+  Sessao.findOne({
+    _id: usuario.sid,
+    usuario: usuario.id,
+    revogadaEm: null,
+    ativaAte: { $gt: new Date() },
+    expiraEm: { $gt: new Date() }
+  }).then((sessao) => {
+    if (!sessao) {
+      res.status(401).json({ success: false, message: 'Sessão encerrada ou expirada' });
+      return;
+    }
+    req.usuario = usuario;
+    req.sessaoId = sessao._id;
+    next();
+  }).catch(next);
 }
 
 router.post('/auth/cadastro', async (req, res) => {
@@ -54,7 +96,7 @@ router.post('/auth/cadastro', async (req, res) => {
     if (existente) return res.status(409).json({ success: false, message: 'Este e-mail já está cadastrado' });
 
     const usuario = await Usuario.create({ nome, email, senha: await bcrypt.hash(senha, 12) });
-    res.status(201).json({ success: true, data: { token: criarToken(usuario), usuario: { nome, email } } });
+    res.status(201).json({ success: true, data: await criarSessao(usuario) });
   } catch (error) {
     console.error(error);
     if (error.code === 11000) {
@@ -74,10 +116,90 @@ router.post('/auth/login', async (req, res) => {
     if (!usuario || !(await bcrypt.compare(senha, usuario.senha))) {
       return res.status(401).json({ success: false, message: 'E-mail ou senha incorretos' });
     }
-    res.json({ success: true, data: { token: criarToken(usuario), usuario: { nome: usuario.nome, email: usuario.email } } });
+    res.json({ success: true, data: await criarSessao(usuario) });
   } catch (error) {
     console.error(error);
     res.status(500).json({ success: false, message: 'Erro ao fazer login' });
+  }
+});
+
+router.post('/auth/session/touch', autenticar, async (req, res) => {
+  try {
+    await Sessao.updateOne(
+      { _id: req.sessaoId, revogadaEm: null },
+      { $set: { ativaAte: new Date(Date.now() + 2 * 60 * 1000) } }
+    );
+    res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Não foi possível validar a sessão' });
+  }
+});
+
+router.post('/auth/logout', autenticar, async (req, res) => {
+  try {
+    await Sessao.updateOne(
+      { _id: req.sessaoId, revogadaEm: null },
+      { $set: { revogadaEm: new Date(), ativaAte: new Date(0) } }
+    );
+    res.json({ success: true, message: 'Sessão encerrada' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Não foi possível encerrar a sessão no servidor' });
+  }
+});
+
+router.get('/chat/messages', autenticar, async (req, res) => {
+  try {
+    const mensagens = await Mensagem.find({})
+      .sort({ createdAt: -1 })
+      .limit(100)
+      .lean();
+    res.json({
+      success: true,
+      data: mensagens.reverse().map((mensagem) => ({
+        id: String(mensagem._id),
+        authorId: String(mensagem.autor),
+        authorName: mensagem.nomeAutor,
+        body: mensagem.texto,
+        createdAt: mensagem.createdAt
+      }))
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Não foi possível carregar o chat' });
+  }
+});
+
+router.post('/notificacoes/token', autenticar, async (req, res) => {
+  try {
+    const token = String(req.body.token || '').trim();
+    if (!/^(?:Expo|Exponent)PushToken\[[A-Za-z0-9+/_=-]+\]$/.test(token)) {
+      return res.status(400).json({ success: false, message: 'Token de notificação inválido' });
+    }
+
+    await PushToken.updateOne(
+      { token },
+      { $set: { usuario: req.usuario.id } },
+      { upsert: true, runValidators: true }
+    );
+    res.status(200).json({ success: true });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Não foi possível registrar a notificação' });
+  }
+});
+
+router.delete('/notificacoes/token', autenticar, async (req, res) => {
+  try {
+    const token = String(req.body.token || '').trim();
+    if (!token) return res.status(400).json({ success: false, message: 'Token obrigatório' });
+
+    await PushToken.deleteOne({ token, usuario: req.usuario.id });
+    res.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Não foi possível remover a notificação' });
   }
 });
 

@@ -1,0 +1,87 @@
+import React, { useEffect, useState } from 'react';
+import { Button, ScrollView, Text, TextInput, View } from 'react-native';
+import { useAudioPlayer } from 'expo-audio';
+import { SessionProvider, useSession } from './src/SessionProvider';
+import { supabase } from './src/supabase';
+import { registerPush } from './src/notifications';
+import Chat from './src/Chat';
+
+function Login() {
+  const { login, busy, reason } = useSession();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  return <View style={{ padding: 24, gap: 16 }}>
+    <Text>Laboratório P2 — entrar</Text>
+    <Text accessibilityLiveRegion="polite">{reason}</Text>
+    <TextInput accessibilityLabel="E-mail" placeholder="E-mail" autoCapitalize="none"
+      keyboardType="email-address" value={email} onChangeText={setEmail} />
+    <TextInput accessibilityLabel="Senha" placeholder="Senha" secureTextEntry
+      value={password} onChangeText={setPassword} />
+    <Button title={busy ? 'Entrando...' : 'Entrar'} disabled={busy} onPress={() => login(email, password)} />
+  </View>;
+}
+function PrivateArea() {
+  const { user, logout, enableNative } = useSession();
+  const [profile, setProfile] = useState(null);
+  const [name, setName] = useState('');
+  const [rooms, setRooms] = useState([]);
+  const [roomId, setRoomId] = useState(null);
+  const [feedback, setFeedback] = useState('');
+  const [muted, setMuted] = useState(false);
+  const audio = useAudioPlayer(require('./assets/evento.wav'));
+  useEffect(() => {
+    let alive = true;
+    async function load() {
+      const [p, r] = await Promise.all([
+        supabase.from('profiles').select('*').eq('id', user.id).single(),
+        supabase.from('rooms').select('*'),
+      ]);
+      if (!alive) return;
+      if (p.error || r.error) { setFeedback(p.error?.message ?? r.error.message); return; }
+      setProfile(p.data); setName(p.data.name); setRooms(r.data);
+    }
+    void load();
+    return () => { alive = false; };
+  }, [user.id]);
+  async function execute(action) {
+    try { await action(); setFeedback('Operação concluída'); }
+    catch (error) { setFeedback(error.message); }
+  }
+  async function save() {
+    const { error } = await supabase.from('profiles').update({ name: name.trim() }).eq('id', user.id);
+    if (error) throw error;
+    setProfile(previous => ({ ...previous, name: name.trim() }));
+  }
+  function sound() {
+    setFeedback('Mensagem enviada');
+    if (!muted) { audio.seekTo(0); audio.play(); }
+  }
+  if (roomId) return <View style={{ flex: 1, padding: 20 }}>
+    <Button title="Voltar ao perfil" onPress={() => setRoomId(null)} />
+    <Chat roomId={roomId} onSent={sound} />
+  </View>;
+  return <ScrollView contentContainerStyle={{ padding: 24, gap: 14 }}>
+    <Text>Conta: {user.email}</Text>
+    <Text>Perfil: {profile?.name} | Papel: {profile?.role}</Text>
+    <TextInput accessibilityLabel="Nome do perfil" value={name} onChangeText={setName} />
+    <Button title="Salvar nome" onPress={() => execute(save)} />
+    <Button title="Ativar entrada nativa" onPress={() => execute(() => enableNative(true))} />
+    <Button title="Desativar entrada nativa" onPress={() => execute(() => enableNative(false))} />
+    <Button title={muted ? 'Ativar som' : 'Silenciar som'} onPress={() => setMuted(!muted)} />
+    <Button title="Registrar push" onPress={() => execute(async () => {
+      const granted = await registerPush(user.id);
+      if (!granted) throw new Error('Permissão negada; aplicativo continua disponível');
+    })} />
+    {rooms.map(room => <Button key={room.id} title={'Abrir ' + room.name} onPress={() => setRoomId(room.id)} />)}
+    <Text accessibilityLiveRegion="polite">{feedback}</Text>
+    <Button title="Sair" onPress={() => logout()} />
+  </ScrollView>;
+}
+function Gate() {
+  const { user } = useSession();
+  // Ao expirar, a área privada inteira é desmontada.
+  return user ? <PrivateArea key={user.id} /> : <Login />;
+}
+export default function App() {
+  return <SessionProvider><View style={{ flex: 1, paddingTop: 48 }}><Gate /></View></SessionProvider>;
+}

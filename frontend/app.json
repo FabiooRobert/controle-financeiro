@@ -18,7 +18,16 @@
       }
     },
     "plugins": [
-      "expo-video"
+      "expo-video",
+      "expo-audio",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Confirmar seu acesso ao Controle Financeiro."
+        }
+      ],
+      "expo-notifications",
+      "expo-asset"
     ]
   }
 }

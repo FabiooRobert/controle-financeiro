@@ -1,24 +1,21 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator, Modal, Platform, Pressable, ScrollView, StyleSheet, View
+  ActivityIndicator, AppState, Modal, Platform, Pressable, ScrollView, StyleSheet, View
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as LocalAuthentication from 'expo-local-authentication';
+import { useAudioPlayer } from 'expo-audio';
 import Libras from './a11y/Libras';
 import {
   AcessibilidadeProvider, AInput, AText, PainelAcessibilidade, useAcessibilidade
 } from './a11y/Acessibilidade';
-
-const webHost = Platform.OS === 'web' && typeof window !== 'undefined'
-  ? window.location.hostname
-  : 'localhost';
-const DEFAULT_API_URL = __DEV__
-  ? (Platform.OS === 'android'
-    ? 'http://10.0.2.2:3000/api'
-    : `http://${webHost}:3000/api`)
-  : 'https://controle-financeiro-1-g7xw.onrender.com/api';
-
-const API_URL = (process.env.EXPO_PUBLIC_API_URL || DEFAULT_API_URL).replace(/\/+$/, '');
-const API_BASE = API_URL.endsWith('/api') ? API_URL : `${API_URL}/api`;
+import Chat from './Chat';
+import { API_BASE } from './api';
+import { registerPush, unregisterPush } from './notifications';
 const CATEGORIAS = ['Alimentação', 'Transporte', 'Lazer', 'Educação', 'Saúde', 'Outros'];
+const INACTIVITY_LIMIT_MS = 2 * 60 * 1000;
+const BIOMETRIC_KEY_PREFIX = 'controle-financeiro.biometria.';
+const PUSH_TOKEN_KEY_PREFIX = 'controle-financeiro.push.';
 
 const moeda = (valor) =>
   `R$ ${Number(valor || 0).toFixed(2).replace('.', ',')}`;
@@ -42,7 +39,9 @@ function AplicativoAcessivel() {
 
 function Financeiro() {
   const { preferencias, cores } = useAcessibilidade();
+  const audio = useAudioPlayer(require('./assets/evento.wav'));
   const [token, setToken] = useState(null);
+  const [usuarioId, setUsuarioId] = useState(null);
   const [modoCadastro, setModoCadastro] = useState(false);
   const [nome, setNome] = useState('');
   const [email, setEmail] = useState('');
@@ -60,12 +59,47 @@ function Financeiro() {
   const [categoriaEditando, setCategoriaEditando] = useState(null);
   const [painel, setPainel] = useState(null);
   const [notificacao, setNotificacao] = useState(null);
+  const [chatAberto, setChatAberto] = useState(false);
+  const [somAtivo, setSomAtivo] = useState(true);
+  const [biometriaAtiva, setBiometriaAtiva] = useState(false);
+  const [pushToken, setPushToken] = useState(null);
+  const ultimaAtividade = useRef(Date.now());
+  const dialogoNativoAtivo = useRef(false);
+  const encerrandoSessao = useRef(false);
+  const renovandoSessao = useRef(false);
 
   function notificar(titulo, mensagem) {
     setNotificacao({ titulo, mensagem });
   }
 
+  function registrarAtividade() {
+    ultimaAtividade.current = Date.now();
+  }
+
+  async function confirmarBiometria(promptMessage) {
+    if (Platform.OS === 'web') throw new Error('A confirmação biométrica requer o aplicativo nativo.');
+    const [hasHardware, isEnrolled] = await Promise.all([
+      LocalAuthentication.hasHardwareAsync(),
+      LocalAuthentication.isEnrolledAsync()
+    ]);
+    if (!hasHardware || !isEnrolled) {
+      throw new Error('Configure uma biometria nas opções do aparelho antes de ativar esse recurso.');
+    }
+
+    dialogoNativoAtivo.current = true;
+    try {
+      const result = await LocalAuthentication.authenticateAsync({ promptMessage });
+      if (!result.success) throw new Error('Confirmação biométrica cancelada ou não reconhecida.');
+    } finally {
+      dialogoNativoAtivo.current = false;
+    }
+  }
+
   async function autenticar() {
+    if (encerrandoSessao.current) {
+      setErroAutenticacao('Aguarde a sessão anterior ser encerrada.');
+      return;
+    }
     setErroAutenticacao('');
     if (modoCadastro && nome.trim().length < 2) {
       setErroAutenticacao('Informe seu nome.');
@@ -77,6 +111,7 @@ function Financeiro() {
     }
 
     setCarregando(true);
+    let tokenPendente = null;
     try {
       const response = await fetch(`${API_BASE}/${modoCadastro ? 'auth/cadastro' : 'auth/login'}`, {
         method: 'POST',
@@ -85,16 +120,188 @@ function Financeiro() {
       });
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.message);
-      setToken(data.data.token);
-      setUsuarioNome(data.data.usuario.nome);
+      const { token: novoToken, usuario } = data.data;
+      tokenPendente = novoToken;
+      let biometriaHabilitada = false;
+      try {
+        biometriaHabilitada = (await AsyncStorage.getItem(`${BIOMETRIC_KEY_PREFIX}${usuario.id}`)) === 'true';
+      } catch (error) {
+        throw new Error(`Não foi possível consultar a preferência biométrica: ${error.message}`);
+      }
+
+      if (biometriaHabilitada) {
+        await confirmarBiometria('Confirmar acesso ao Controle Financeiro');
+      }
+
+      const touchResponse = await fetch(`${API_BASE}/auth/session/touch`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${novoToken}` }
+      });
+      if (!touchResponse.ok) throw new Error('Não foi possível iniciar a sessão protegida.');
+
+      setUsuarioId(usuario.id);
+      setToken(novoToken);
+      setUsuarioNome(usuario.nome);
+      setBiometriaAtiva(biometriaHabilitada);
+      setPushToken(null);
+      registrarAtividade();
+      tokenPendente = null;
       setSenha('');
     } catch (error) {
-      setErroAutenticacao(error.message || 'E-mail ou senha incorretos.');
-      notificar('Erro', error.message || 'Não foi possível acessar sua conta.');
+      let mensagem = error.message || 'E-mail ou senha incorretos.';
+      if (tokenPendente) {
+        try {
+          const logoutResponse = await fetch(`${API_BASE}/auth/logout`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${tokenPendente}` }
+          });
+          if (!logoutResponse.ok) throw new Error('o servidor não confirmou a revogação');
+        } catch (logoutError) {
+          mensagem += ` A revogação remota não foi confirmada (${logoutError.message}); o acesso expira em até dois minutos.`;
+        }
+      }
+      setErroAutenticacao(mensagem);
+      notificar('Erro', mensagem);
     } finally {
       setCarregando(false);
     }
   }
+
+  async function encerrarSessao(motivo = 'Sessão encerrada', mostrarMotivo = true) {
+    if (encerrandoSessao.current) return;
+    encerrandoSessao.current = true;
+    const tokenAtual = token;
+    const usuarioAtual = usuarioId;
+    const tokenPushAtual = pushToken;
+    setToken(null);
+    setUsuarioId(null);
+    setUsuarioNome('');
+    setDespesas([]);
+    setTotal(0);
+    setChatAberto(false);
+    setPushToken(null);
+    setBiometriaAtiva(false);
+    setSenha('');
+    if (!mostrarMotivo) setErroAutenticacao('');
+    const falhas = [];
+
+    try {
+      if (tokenAtual && usuarioAtual) {
+        let tokenParaRemover = tokenPushAtual;
+        if (!tokenParaRemover) {
+          tokenParaRemover = await AsyncStorage.getItem(`${PUSH_TOKEN_KEY_PREFIX}${usuarioAtual}`);
+        }
+        if (tokenParaRemover) {
+          await unregisterPush(tokenAtual, tokenParaRemover);
+          await AsyncStorage.removeItem(`${PUSH_TOKEN_KEY_PREFIX}${usuarioAtual}`);
+        }
+      }
+    } catch (error) {
+      falhas.push(`não foi possível remover o registro de notificações (${error.message})`);
+    }
+
+    try {
+      if (tokenAtual) {
+        const response = await fetch(`${API_BASE}/auth/logout`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${tokenAtual}` }
+        });
+        if (!response.ok) throw new Error('o servidor não confirmou a revogação');
+      }
+    } catch (error) {
+      falhas.push(`${error.message}; o acesso remoto expira em até dois minutos`);
+    } finally {
+      encerrandoSessao.current = false;
+    }
+
+    if (mostrarMotivo) {
+      setErroAutenticacao(falhas.length ? `${motivo}. ${falhas.join('; ')}.` : motivo);
+    } else if (falhas.length) {
+      setErroAutenticacao(`Sessão encerrada, mas ${falhas.join('; ')}.`);
+    }
+  }
+
+  async function alternarBiometria() {
+    if (biometriaAtiva) {
+      await AsyncStorage.removeItem(`${BIOMETRIC_KEY_PREFIX}${usuarioId}`);
+      setBiometriaAtiva(false);
+      notificar('Biometria desativada', 'O próximo acesso continuará protegido pela senha da conta.');
+      return;
+    }
+
+    await confirmarBiometria('Ativar confirmação biométrica');
+    await AsyncStorage.setItem(`${BIOMETRIC_KEY_PREFIX}${usuarioId}`, 'true');
+    setBiometriaAtiva(true);
+    notificar('Biometria ativada', 'A senha da conta continuará sendo necessária em cada novo acesso.');
+  }
+
+  async function ativarNotificacoes() {
+    dialogoNativoAtivo.current = true;
+    try {
+      const tokenRegistrado = await registerPush(token);
+      if (!tokenRegistrado) {
+        notificar('Notificações não ativadas', 'A permissão foi negada. O aplicativo continuará disponível.');
+        return;
+      }
+      await AsyncStorage.setItem(`${PUSH_TOKEN_KEY_PREFIX}${usuarioId}`, tokenRegistrado);
+      setPushToken(tokenRegistrado);
+      notificar('Notificações ativadas', 'Este aparelho poderá receber avisos genéricos de novas mensagens.');
+    } finally {
+      dialogoNativoAtivo.current = false;
+    }
+  }
+
+  function tocarSom() {
+    if (!somAtivo) return;
+    audio.seekTo(0);
+    audio.play();
+  }
+
+  useEffect(() => {
+    if (!token) return undefined;
+
+    const appStateSubscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') return;
+      if (state === 'inactive' && dialogoNativoAtivo.current) return;
+      void encerrarSessao('Sessão encerrada ao sair do aplicativo');
+    });
+
+    const timer = setInterval(async () => {
+      if (renovandoSessao.current || encerrandoSessao.current) return;
+      if (Date.now() - ultimaAtividade.current >= INACTIVITY_LIMIT_MS) {
+        void encerrarSessao('Sessão expirada por inatividade');
+        return;
+      }
+
+      renovandoSessao.current = true;
+      try {
+        const response = await fetch(`${API_BASE}/auth/session/touch`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!response.ok) throw new Error('Não foi possível validar a sessão no servidor.');
+      } catch (error) {
+        void encerrarSessao(error.message);
+      } finally {
+        renovandoSessao.current = false;
+      }
+    }, 10000);
+
+    return () => {
+      appStateSubscription.remove();
+      clearInterval(timer);
+    };
+  }, [token]);
+
+  useEffect(() => {
+    if (!token || Platform.OS !== 'web' || typeof window === 'undefined') return undefined;
+    const events = ['pointerdown', 'keydown', 'scroll'];
+    const handleActivity = () => registrarAtividade();
+    events.forEach((eventName) => window.addEventListener(eventName, handleActivity, true));
+    return () => {
+      events.forEach((eventName) => window.removeEventListener(eventName, handleActivity, true));
+    };
+  }, [token]);
 
   async function listarDespesas() {
     try {
@@ -259,8 +466,51 @@ function Financeiro() {
     );
   }
 
+  if (chatAberto) {
+    return (
+      <View
+        style={[styles.chatTela, { backgroundColor: cores.fundo }]}
+        onTouchStart={registrarAtividade}
+      >
+        <View style={[styles.chatCabecalho, { borderBottomColor: cores.borda }]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Voltar para as despesas"
+            onPress={() => setChatAberto(false)}
+            style={styles.linkBotao}
+          >
+            <AText style={styles.link}>Voltar</AText>
+          </Pressable>
+          <AText accessibilityRole="header" style={styles.chatTitulo}>Sala geral</AText>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={somAtivo ? 'Silenciar sons' : 'Ativar sons'}
+            onPress={() => setSomAtivo((current) => !current)}
+            style={styles.linkBotao}
+          >
+            <AText style={styles.link}>{somAtivo ? 'Som: ligado' : 'Som: desligado'}</AText>
+          </Pressable>
+        </View>
+        <AText style={styles.chatAviso}>
+          As mensagens são visíveis para todas as contas do aplicativo. Não envie dados financeiros ou pessoais.
+        </AText>
+        <Chat
+          token={token}
+          userId={usuarioId}
+          onActivity={registrarAtividade}
+          onIncoming={tocarSom}
+          onSent={tocarSom}
+        />
+      </View>
+    );
+  }
+
   return (
-    <ScrollView style={[styles.container, { backgroundColor: cores.fundo }]} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={[styles.container, { backgroundColor: cores.fundo }]}
+      contentContainerStyle={styles.content}
+      onTouchStart={registrarAtividade}
+    >
       <View style={styles.acessibilidadeAcoes}>
         <Pressable accessibilityRole="button" onPress={() => setPainel('ajustes')} style={styles.linkBotao}>
           <AText style={styles.link}>Acessibilidade</AText>
@@ -274,7 +524,46 @@ function Financeiro() {
       <AText style={styles.subtitulo}>Organize suas despesas</AText>
       <View style={styles.usuarioLinha}>
         <AText style={styles.usuarioTexto}>Olá, {usuarioNome}</AText>
-        <Pressable accessibilityRole="button" accessibilityLabel="Sair da conta" onPress={() => setToken(null)}><AText style={styles.sair}>Sair</AText></Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Sair da conta"
+          onPress={() => void encerrarSessao('Sessão encerrada', false)}
+        >
+          <AText style={styles.sair}>Sair</AText>
+        </Pressable>
+      </View>
+
+      <View style={styles.recursoLinha}>
+        <Pressable accessibilityRole="button" style={styles.linkBotao} onPress={() => setChatAberto(true)}>
+          <AText style={styles.link}>Abrir sala geral</AText>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={somAtivo ? 'Silenciar sons' : 'Ativar sons'}
+          style={styles.linkBotao}
+          onPress={() => setSomAtivo((current) => !current)}
+        >
+          <AText style={styles.link}>{somAtivo ? 'Som: ligado' : 'Som: desligado'}</AText>
+        </Pressable>
+      </View>
+      <AText style={styles.chatAviso}>
+        A sala geral é visível para todas as contas. Não envie dados financeiros ou pessoais.
+      </AText>
+      <View style={styles.recursoLinha}>
+        <Pressable
+          accessibilityRole="button"
+          style={styles.linkBotao}
+          onPress={() => void alternarBiometria().catch((error) => notificar('Biometria indisponível', error.message))}
+        >
+          <AText style={styles.link}>{biometriaAtiva ? 'Desativar biometria' : 'Ativar biometria'}</AText>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          style={styles.linkBotao}
+          onPress={() => void ativarNotificacoes().catch((error) => notificar('Notificações indisponíveis', error.message))}
+        >
+          <AText style={styles.link}>{pushToken ? 'Notificações ativadas' : 'Ativar notificações'}</AText>
+        </Pressable>
       </View>
 
       <View style={[styles.totalCard, { backgroundColor: cores.cartaoTotal }]}>
@@ -497,6 +786,11 @@ const styles = StyleSheet.create({
   link: { color: '#19352b', textAlign: 'center', fontWeight: '700', padding: 10 },
   acessibilidadeAcoes: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 8, width: '100%', marginBottom: 12 },
   linkBotao: { minHeight: 48, justifyContent: 'center', borderWidth: 1, borderColor: '#cbd7d2', borderRadius: 10 },
+  recursoLinha: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
+  chatTela: { flex: 1, paddingTop: 36 },
+  chatCabecalho: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8, paddingHorizontal: 12, paddingBottom: 10, borderBottomWidth: 1 },
+  chatTitulo: { fontSize: 20, fontWeight: '800' },
+  chatAviso: { marginHorizontal: 14, marginTop: 8, marginBottom: 4, fontSize: 13 },
   usuarioLinha: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 },
   usuarioTexto: { color: '#52645d', fontWeight: '700' },
   sair: { color: '#b43b3b', fontWeight: '700' },
