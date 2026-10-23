@@ -110,7 +110,19 @@ git push origin main
 
 ## Acesso por usuário
 
-Ao abrir o app, crie uma conta com nome, e-mail e senha de pelo menos 6 caracteres. Depois do login, cada usuário visualiza e gerencia somente as próprias despesas.
+Ao abrir o app, crie uma conta com nome, e-mail e senha de pelo menos 6 caracteres. Novos cadastros recebem o perfil **Usuário comum** e visualizam e gerenciam somente as próprias despesas.
+
+O perfil **Administrador** pode consultar as despesas de todas as contas e alterar o perfil dos outros usuários. O administrador não pode alterar o próprio perfil; outro administrador precisa fazer isso. O sistema também impede remover o último administrador. As permissões são verificadas pela API em cada requisição, então uma alteração de perfil vale imediatamente, inclusive para sessões já abertas.
+
+Para provisionar o primeiro administrador, configure no ambiente do backend:
+
+```text
+ADMIN_EMAIL=administrador@exemplo.com
+ADMIN_PASSWORD=uma-senha-forte-com-pelo-menos-12-caracteres
+ADMIN_NAME=Administrador
+```
+
+Na inicialização, o backend cria essa conta se ela ainda não existir; se a conta já existir, atribui a ela o perfil de administrador sem trocar sua senha. O e-mail configurado fica reservado e não pode ser usado no cadastro público. Nunca configure essas credenciais no frontend nem as envie ao GitHub.
 
 Defina `JWT_SECRET` no `.env` do backend com um segredo forte em ambientes reais.
 
@@ -138,6 +150,9 @@ Verificações manuais recomendadas: entrar e sair, cancelar a confirmação bio
 - POST `/api/auth/login`
 - POST `/api/auth/session/touch`
 - POST `/api/auth/logout`
+- GET `/api/admin/usuarios` (administrador)
+- PATCH `/api/admin/usuarios/:id/perfil` (administrador)
+- GET `/api/admin/despesas` (administrador)
 - GET `/api/chat/messages`
 - POST/DELETE `/api/notificacoes/token`
 - POST `/api/financas/despesa`

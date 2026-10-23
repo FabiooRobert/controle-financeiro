@@ -16,6 +16,7 @@ function criarToken(usuario, sessaoId) {
     id: usuario._id,
     nome: usuario.nome,
     email: usuario.email,
+    perfil: usuario.perfil || 'usuario',
     sid: sessaoId
   }, process.env.JWT_SECRET, { expiresIn: '7d' });
 }
@@ -30,7 +31,12 @@ async function criarSessao(usuario) {
 
   return {
     token: criarToken(usuario, sessao._id),
-    usuario: { id: String(usuario._id), nome: usuario.nome, email: usuario.email }
+    usuario: {
+      id: String(usuario._id),
+      nome: usuario.nome,
+      email: usuario.email,
+      perfil: usuario.perfil || 'usuario'
+    }
   };
 }
 
@@ -70,15 +76,32 @@ function autenticar(req, res, next) {
     revogadaEm: null,
     ativaAte: { $gt: new Date() },
     expiraEm: { $gt: new Date() }
-  }).then((sessao) => {
+  }).then(async (sessao) => {
     if (!sessao) {
       res.status(401).json({ success: false, message: 'Sessão encerrada ou expirada' });
       return;
     }
-    req.usuario = usuario;
+    const conta = await Usuario.findById(usuario.id).select('nome email perfil').lean();
+    if (!conta) {
+      res.status(401).json({ success: false, message: 'Conta não encontrada' });
+      return;
+    }
+    req.usuario = {
+      id: String(conta._id),
+      nome: conta.nome,
+      email: conta.email,
+      perfil: conta.perfil || 'usuario'
+    };
     req.sessaoId = sessao._id;
     next();
   }).catch(next);
+}
+
+function exigirAdministrador(req, res, next) {
+  if (req.usuario.perfil !== 'administrador') {
+    return res.status(403).json({ success: false, message: 'Acesso permitido somente para administradores' });
+  }
+  next();
 }
 
 router.post('/auth/cadastro', async (req, res) => {
@@ -88,6 +111,9 @@ router.post('/auth/cadastro', async (req, res) => {
     const nome = String(req.body.nome || '').trim();
     const email = String(req.body.email || '').trim().toLowerCase();
     const senha = String(req.body.senha || '');
+    if (email && email === String(process.env.ADMIN_EMAIL || '').trim().toLowerCase()) {
+      return res.status(403).json({ success: false, message: 'Este e-mail está reservado para a conta administradora' });
+    }
     if (nome.length < 2 || nome.length > 80 || !/^\S+@\S+\.\S+$/.test(email) || senha.length < 6) {
       return res.status(400).json({ success: false, message: 'Informe nome, e-mail válido e senha com pelo menos 6 caracteres' });
     }
@@ -146,6 +172,87 @@ router.post('/auth/logout', autenticar, async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ success: false, message: 'Não foi possível encerrar a sessão no servidor' });
+  }
+});
+
+router.get('/admin/usuarios', autenticar, exigirAdministrador, async (req, res) => {
+  try {
+    const usuarios = await Usuario.find({})
+      .select('nome email perfil createdAt')
+      .sort({ nome: 1 })
+      .lean();
+    res.json({
+      success: true,
+      data: usuarios.map((usuario) => ({
+        id: String(usuario._id),
+        nome: usuario.nome,
+        email: usuario.email,
+        perfil: usuario.perfil || 'usuario',
+        criadoEm: usuario.createdAt
+      }))
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Não foi possível listar os usuários' });
+  }
+});
+
+router.patch('/admin/usuarios/:id/perfil', autenticar, exigirAdministrador, async (req, res) => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ success: false, message: 'ID do usuário inválido' });
+    }
+    const perfil = String(req.body.perfil || '');
+    if (!['administrador', 'usuario'].includes(perfil)) {
+      return res.status(400).json({ success: false, message: 'Perfil inválido' });
+    }
+    if (String(req.usuario.id) === req.params.id) {
+      return res.status(400).json({ success: false, message: 'Peça a outro administrador para alterar seu perfil' });
+    }
+
+    const usuario = await Usuario.findById(req.params.id).select('nome email perfil');
+    if (!usuario) return res.status(404).json({ success: false, message: 'Usuário não encontrado' });
+
+    if (usuario.perfil === 'administrador' && perfil === 'usuario') {
+      const administradores = await Usuario.countDocuments({ perfil: 'administrador' });
+      if (administradores <= 1) {
+        return res.status(409).json({ success: false, message: 'Não é possível remover o último administrador' });
+      }
+    }
+
+    usuario.perfil = perfil;
+    await usuario.save();
+    res.json({
+      success: true,
+      data: { id: String(usuario._id), nome: usuario.nome, email: usuario.email, perfil: usuario.perfil }
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Não foi possível alterar o perfil do usuário' });
+  }
+});
+
+router.get('/admin/despesas', autenticar, exigirAdministrador, async (req, res) => {
+  try {
+    const despesas = await Despesa.find({})
+      .populate('usuario', 'nome email')
+      .sort({ data: -1, criadoEm: -1 })
+      .lean();
+    const total = despesas.reduce((sum, despesa) => sum + Number(despesa.valor), 0);
+    res.json({
+      success: true,
+      total,
+      quantidade: despesas.length,
+      data: despesas.map((despesa) => ({
+        ...despesa,
+        usuario: despesa.usuario
+          ? { nome: despesa.usuario.nome, email: despesa.usuario.email }
+          : { nome: 'Conta removida', email: '' }
+      }))
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: 'Não foi possível listar as despesas' });
   }
 });
 

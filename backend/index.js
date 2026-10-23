@@ -2,10 +2,12 @@ const http = require('http');
 const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 const { Server } = require('socket.io');
 require('dotenv').config();
 
 const { connectToDatabase } = require('./config/database');
+const Usuario = require('./models/Usuario');
 const apiRoutes = require('./routes/api');
 const Sessao = require('./models/Sessao');
 const Mensagem = require('./models/Mensagem');
@@ -242,11 +244,38 @@ app.get('/', (req, res) => {
 async function startServer() {
   try {
     await connectToDatabase();
+    await provisionarAdministrador();
     await listenOnPort(PORT);
   } catch (error) {
     console.error('❌ Erro ao iniciar servidor:', error.message);
     process.exit(1);
   }
+}
+
+async function provisionarAdministrador() {
+  const email = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+  const senha = String(process.env.ADMIN_PASSWORD || '');
+  if (!email && !senha) return;
+  if (!/^\S+@\S+\.\S+$/.test(email) || senha.length < 12) {
+    throw new Error('Configure ADMIN_EMAIL válido e ADMIN_PASSWORD com pelo menos 12 caracteres');
+  }
+
+  const existente = await Usuario.findOne({ email });
+  if (existente) {
+    if (existente.perfil !== 'administrador') {
+      existente.perfil = 'administrador';
+      await existente.save();
+    }
+    return;
+  }
+
+  const nome = String(process.env.ADMIN_NAME || 'Administrador').trim();
+  await Usuario.create({
+    nome: nome.length >= 2 && nome.length <= 80 ? nome : 'Administrador',
+    email,
+    senha: await bcrypt.hash(senha, 12),
+    perfil: 'administrador'
+  });
 }
 
 startServer();

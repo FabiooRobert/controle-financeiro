@@ -42,6 +42,12 @@ function Financeiro() {
   const audio = useAudioPlayer(require('./assets/evento.wav'));
   const [token, setToken] = useState(null);
   const [usuarioId, setUsuarioId] = useState(null);
+  const [usuarioPerfil, setUsuarioPerfil] = useState('usuario');
+  const [painelAdminAberto, setPainelAdminAberto] = useState(false);
+  const [usuariosAdmin, setUsuariosAdmin] = useState([]);
+  const [despesasAdmin, setDespesasAdmin] = useState([]);
+  const [totalAdmin, setTotalAdmin] = useState(0);
+  const [carregandoAdmin, setCarregandoAdmin] = useState(false);
   const [modoCadastro, setModoCadastro] = useState(false);
   const [nome, setNome] = useState('');
   const [email, setEmail] = useState('');
@@ -146,6 +152,7 @@ function Financeiro() {
       if (!touchResponse.ok) throw new Error('Não foi possível iniciar a sessão protegida.');
 
       setUsuarioId(usuario.id);
+      setUsuarioPerfil(usuario.perfil || 'usuario');
       setToken(novoToken);
       setUsuarioNome(usuario.nome);
       setBiometriaAtiva(biometriaHabilitada);
@@ -181,6 +188,8 @@ function Financeiro() {
     const tokenPushAtual = pushToken;
     setToken(null);
     setUsuarioId(null);
+    setUsuarioPerfil('usuario');
+    setPainelAdminAberto(false);
     setUsuarioNome('');
     setDespesas([]);
     setTotal(0);
@@ -429,6 +438,56 @@ function Financeiro() {
 
   useEffect(() => { if (token) listarDespesas(); }, [token]);
 
+  async function carregarDadosAdmin() {
+    setCarregandoAdmin(true);
+    try {
+      const [usuariosResponse, despesasResponse] = await Promise.all([
+        fetch(`${API_BASE}/admin/usuarios`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_BASE}/admin/despesas`, { headers: { Authorization: `Bearer ${token}` } })
+      ]);
+      const [usuariosData, despesasData] = await Promise.all([
+        usuariosResponse.json(),
+        despesasResponse.json()
+      ]);
+      if (!usuariosResponse.ok || !usuariosData.success) {
+        throw new Error(usuariosData.message || 'Não foi possível listar os usuários');
+      }
+      if (!despesasResponse.ok || !despesasData.success) {
+        throw new Error(despesasData.message || 'Não foi possível listar as despesas');
+      }
+      setUsuariosAdmin(usuariosData.data);
+      setDespesasAdmin(despesasData.data);
+      setTotalAdmin(Number(despesasData.total || 0));
+    } catch (error) {
+      notificar('Erro na administração', error.message);
+    } finally {
+      setCarregandoAdmin(false);
+    }
+  }
+
+  useEffect(() => {
+    if (token && usuarioPerfil === 'administrador' && painelAdminAberto) {
+      void carregarDadosAdmin();
+    }
+  }, [token, usuarioPerfil, painelAdminAberto]);
+
+  async function alterarPerfil(usuario) {
+    const novoPerfil = usuario.perfil === 'administrador' ? 'usuario' : 'administrador';
+    try {
+      const response = await fetch(`${API_BASE}/admin/usuarios/${usuario.id}/perfil`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ perfil: novoPerfil })
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.message || 'Não foi possível alterar o perfil');
+      await carregarDadosAdmin();
+      notificar('Perfil atualizado', `${usuario.nome} agora é ${novoPerfil === 'administrador' ? 'administrador' : 'usuário comum'}.`);
+    } catch (error) {
+      notificar('Erro', error.message);
+    }
+  }
+
   if (!token) {
     return (
       <ScrollView
@@ -518,6 +577,77 @@ function Financeiro() {
     );
   }
 
+  if (painelAdminAberto && usuarioPerfil === 'administrador') {
+    return (
+      <ScrollView
+        style={[styles.container, { backgroundColor: cores.fundo }]}
+        contentContainerStyle={styles.content}
+        onTouchStart={registrarAtividade}
+      >
+        <View style={styles.usuarioLinha}>
+          <AText accessibilityRole="header" style={styles.listaTitulo}>Administração</AText>
+          <Pressable accessibilityRole="button" onPress={() => setPainelAdminAberto(false)} style={styles.linkBotao}>
+            <AText style={styles.link}>Voltar às despesas</AText>
+          </Pressable>
+        </View>
+        <AText style={styles.subtituloAdmin}>
+          {usuariosAdmin.length} usuários · {despesasAdmin.length} despesas · Total {moeda(totalAdmin)}
+        </AText>
+        <View style={styles.adminCabecalho}>
+          <AText style={styles.listaTitulo}>Usuários e perfis</AText>
+          <Pressable accessibilityRole="button" onPress={() => void carregarDadosAdmin()} style={styles.linkBotao}>
+            <AText style={styles.link}>{carregandoAdmin ? 'Atualizando...' : 'Atualizar'}</AText>
+          </Pressable>
+        </View>
+        {usuariosAdmin.map((usuario) => (
+          <View key={usuario.id} style={[styles.itemAdmin, { backgroundColor: cores.superficie }]}>
+            <View style={{ flex: 1 }}>
+              <AText style={styles.itemDescricao}>{usuario.nome}</AText>
+              <AText style={styles.itemCategoria}>{usuario.email}</AText>
+              <AText style={styles.itemCategoria}>
+                Perfil: {usuario.perfil === 'administrador' ? 'Administrador' : 'Usuário comum'}
+              </AText>
+            </View>
+            {usuario.id !== usuarioId && (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => void alterarPerfil(usuario)}
+                style={styles.linkBotao}
+              >
+                <AText style={styles.link}>
+                  {usuario.perfil === 'administrador' ? 'Tornar comum' : 'Tornar admin'}
+                </AText>
+              </Pressable>
+            )}
+          </View>
+        ))}
+        <AText accessibilityRole="header" style={styles.listaTitulo}>Despesas de todos os usuários</AText>
+        {despesasAdmin.length === 0 ? (
+          <View style={[styles.vazio, { backgroundColor: cores.superficie }]}>
+            <AText style={styles.vazioTexto}>Nenhuma despesa cadastrada.</AText>
+          </View>
+        ) : despesasAdmin.map((item) => (
+          <View key={item._id} style={[styles.itemAdmin, { backgroundColor: cores.superficie }]}>
+            <View style={{ flex: 1 }}>
+              <AText style={styles.itemDescricao}>{item.descricao}</AText>
+              <AText style={styles.itemCategoria}>
+                {item.usuario?.nome || 'Conta removida'} · {item.usuario?.email || 'sem e-mail'}
+              </AText>
+              <AText style={styles.itemCategoria}>{item.categoria || 'Outros'}</AText>
+            </View>
+            <AText style={styles.itemValor}>{moeda(item.valor)}</AText>
+          </View>
+        ))}
+        <AcessibilidadeModais
+          painel={painel}
+          setPainel={setPainel}
+          notificacao={notificacao}
+          fecharNotificacao={() => setNotificacao(null)}
+        />
+      </ScrollView>
+    );
+  }
+
   return (
     <ScrollView
       style={[styles.container, { backgroundColor: cores.fundo }]}
@@ -536,7 +666,9 @@ function Financeiro() {
       <AText accessibilityRole="header" style={styles.titulo}>Controle Financeiro</AText>
       <AText style={styles.subtitulo}>Organize suas despesas</AText>
       <View style={styles.usuarioLinha}>
-        <AText style={styles.usuarioTexto}>Olá, {usuarioNome}</AText>
+        <AText style={styles.usuarioTexto}>
+          Olá, {usuarioNome} · {usuarioPerfil === 'administrador' ? 'Administrador' : 'Usuário comum'}
+        </AText>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Sair da conta"
@@ -545,6 +677,15 @@ function Financeiro() {
           <AText style={styles.sair}>Sair</AText>
         </Pressable>
       </View>
+      {usuarioPerfil === 'administrador' && (
+        <Pressable
+          accessibilityRole="button"
+          style={[styles.linkBotao, styles.adminBotao]}
+          onPress={() => setPainelAdminAberto(true)}
+        >
+          <AText style={styles.link}>Abrir administração</AText>
+        </Pressable>
+      )}
 
       <View style={styles.recursoLinha}>
         <Pressable accessibilityRole="button" style={styles.linkBotao} onPress={() => setChatAberto(true)}>
@@ -806,6 +947,10 @@ const styles = StyleSheet.create({
   chatAviso: { marginHorizontal: 14, marginTop: 8, marginBottom: 4, fontSize: 13 },
   usuarioLinha: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 },
   usuarioTexto: { color: '#52645d', fontWeight: '700' },
+  adminBotao: { alignSelf: 'flex-start', marginBottom: 16 },
+  adminCabecalho: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
+  subtituloAdmin: { color: '#52645d', marginBottom: 20, fontWeight: '700' },
+  itemAdmin: { backgroundColor: '#fff', borderRadius: 15, padding: 16, marginBottom: 10, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 12 },
   sair: { color: '#b43b3b', fontWeight: '700' },
   emoji: { fontSize: 42, textAlign: 'center', marginBottom: 8 },
   titulo: { fontSize: 30, lineHeight: 38, fontWeight: '800', textAlign: 'center', color: '#19352b' },
