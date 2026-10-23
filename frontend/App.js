@@ -14,7 +14,7 @@ import { API_BASE } from './api';
 import { registerPush, unregisterPush } from './notifications';
 const CATEGORIAS = ['Alimentação', 'Transporte', 'Lazer', 'Educação', 'Saúde', 'Outros'];
 const INACTIVITY_LIMIT_MS = 2 * 60 * 1000;
-const BIOMETRIC_KEY_PREFIX = 'controle-financeiro.biometria.';
+const NATIVE_KEY_PREFIX = 'native:';
 const PUSH_TOKEN_KEY_PREFIX = 'controle-financeiro.push.';
 
 const moeda = (valor) =>
@@ -65,6 +65,7 @@ function Financeiro() {
   const [pushToken, setPushToken] = useState(null);
   const ultimaAtividade = useRef(Date.now());
   const dialogoNativoAtivo = useRef(false);
+  const backgroundDurantePrompt = useRef(false);
   const encerrandoSessao = useRef(false);
   const renovandoSessao = useRef(false);
 
@@ -87,11 +88,16 @@ function Financeiro() {
     }
 
     dialogoNativoAtivo.current = true;
+    backgroundDurantePrompt.current = false;
     try {
       const result = await LocalAuthentication.authenticateAsync({ promptMessage });
+      if (backgroundDurantePrompt.current) {
+        throw new Error('Entrada nativa não autorizada.');
+      }
       if (!result.success) throw new Error('Confirmação biométrica cancelada ou não reconhecida.');
     } finally {
       dialogoNativoAtivo.current = false;
+      backgroundDurantePrompt.current = false;
     }
   }
 
@@ -124,7 +130,7 @@ function Financeiro() {
       tokenPendente = novoToken;
       let biometriaHabilitada = false;
       try {
-        biometriaHabilitada = (await AsyncStorage.getItem(`${BIOMETRIC_KEY_PREFIX}${usuario.id}`)) === 'true';
+        biometriaHabilitada = (await AsyncStorage.getItem(`${NATIVE_KEY_PREFIX}${usuario.id}`)) === 'true';
       } catch (error) {
         throw new Error(`Não foi possível consultar a preferência biométrica: ${error.message}`);
       }
@@ -223,14 +229,14 @@ function Financeiro() {
 
   async function alternarBiometria() {
     if (biometriaAtiva) {
-      await AsyncStorage.removeItem(`${BIOMETRIC_KEY_PREFIX}${usuarioId}`);
+      await AsyncStorage.removeItem(`${NATIVE_KEY_PREFIX}${usuarioId}`);
       setBiometriaAtiva(false);
       notificar('Biometria desativada', 'O próximo acesso continuará protegido pela senha da conta.');
       return;
     }
 
     await confirmarBiometria('Ativar confirmação biométrica');
-    await AsyncStorage.setItem(`${BIOMETRIC_KEY_PREFIX}${usuarioId}`, 'true');
+    await AsyncStorage.setItem(`${NATIVE_KEY_PREFIX}${usuarioId}`, 'true');
     setBiometriaAtiva(true);
     notificar('Biometria ativada', 'A senha da conta continuará sendo necessária em cada novo acesso.');
   }
@@ -261,8 +267,15 @@ function Financeiro() {
     if (!token) return undefined;
 
     const appStateSubscription = AppState.addEventListener('change', (state) => {
+      if (dialogoNativoAtivo.current) {
+        if (state === 'inactive') return;
+        if (state === 'background') {
+          backgroundDurantePrompt.current = true;
+          void encerrarSessao('Aplicativo em segundo plano');
+        }
+        return;
+      }
       if (state === 'active') return;
-      if (state === 'inactive' && dialogoNativoAtivo.current) return;
       void encerrarSessao('Sessão encerrada ao sair do aplicativo');
     });
 
