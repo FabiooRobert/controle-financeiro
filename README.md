@@ -112,7 +112,7 @@ git push origin main
 
 Ao abrir o app, crie uma conta com nome, e-mail e senha de pelo menos 6 caracteres. Novos cadastros recebem o perfil **Usuário comum** e visualizam e gerenciam somente as próprias despesas.
 
-O perfil **Administrador** pode consultar as despesas de todas as contas e alterar o perfil dos outros usuários. O administrador não pode alterar o próprio perfil; outro administrador precisa fazer isso. O sistema também impede remover o último administrador. As permissões são verificadas pela API em cada requisição, então uma alteração de perfil vale imediatamente, inclusive para sessões já abertas.
+O perfil **Administrador** pode consultar as despesas de todas as contas e alterar o perfil dos outros usuários. Na tela de login, use **Acesso do administrador** e entre com o e-mail e a senha da conta administradora; o painel de administração será aberto após a autenticação. O administrador não pode alterar o próprio perfil; outro administrador precisa fazer isso. O sistema também impede remover o último administrador. As permissões são verificadas pela API em cada requisição, então uma alteração de perfil vale imediatamente, inclusive para sessões já abertas.
 
 Para provisionar o primeiro administrador, configure no ambiente do backend:
 
@@ -130,7 +130,7 @@ Defina `JWT_SECRET` no `.env` do backend com um segredo forte em ambientes reais
 
 O aplicativo mantém a API Node/Express e o MongoDB existentes; não usa Supabase. Após publicar o backend atualizado, faça login novamente: sessões JWT antigas não incluem o identificador de sessão necessário às novas rotas protegidas.
 
-- **Sessão:** encerra após dois minutos sem atividade ou quando o app sai do primeiro plano. O servidor valida uma concessão renovada pelo app e revoga a sessão no logout. Se o aparelho ficar sem rede ou o sistema encerrar o processo, a última concessão pode continuar válida por até dois minutos.
+- **Sessão:** encerra após 60 segundos sem atividade ou quando o app sai do primeiro plano. O servidor valida uma concessão renovada pelo app e revoga a sessão no logout. Se o aparelho ficar sem rede ou o sistema encerrar o processo, a última concessão pode continuar válida por até 60 segundos.
 - **Biometria:** opcional e configurada por conta neste aparelho. A senha continua obrigatória; a biometria é uma confirmação local, não MFA remoto. Não há biometria na versão web. É necessário gerar uma nova build nativa após adicionar os plugins.
 - **Chat:** sala geral em tempo real com Socket.IO; todas as contas autenticadas podem ler e enviar mensagens. Não envie dados pessoais ou financeiros. A tela carrega as 100 mensagens mais recentes; não há paginação nem expiração automática do histórico.
 - **Notificações:** configure FCM v1/APNs no EAS e teste em build de desenvolvimento num aparelho físico; Expo Go não valida push remoto. Os avisos não incluem o texto da mensagem. O registro do aparelho é removido ao sair quando há conexão.
@@ -142,7 +142,7 @@ Atualize e publique o backend antes do frontend. O backend requer Node.js 18 ou 
 
 O push é best-effort: não há fila, retentativas ou persistência de receipts; também não há limitação de frequência de mensagens. O histórico do chat não expira automaticamente.
 
-Verificações manuais recomendadas: entrar e sair, cancelar a confirmação biométrica, testar a expiração após dois minutos, conversar com duas contas em aparelhos diferentes, negar permissão de push e testar logout sem rede.
+Verificações manuais recomendadas: entrar e sair, cancelar a confirmação biométrica, testar a expiração após 60 segundos, conversar com duas contas em aparelhos diferentes, negar permissão de push e testar logout sem rede.
 
 ## Endpoints
 

@@ -13,7 +13,7 @@ import Chat from './Chat';
 import { API_BASE } from './api';
 import { registerPush, unregisterPush } from './notifications';
 const CATEGORIAS = ['Alimentação', 'Transporte', 'Lazer', 'Educação', 'Saúde', 'Outros'];
-const INACTIVITY_LIMIT_MS = 2 * 60 * 1000;
+const INACTIVITY_LIMIT_MS = 60 * 1000;
 const NATIVE_KEY_PREFIX = 'native:';
 const PUSH_TOKEN_KEY_PREFIX = 'controle-financeiro.push.';
 
@@ -49,6 +49,7 @@ function Financeiro() {
   const [totalAdmin, setTotalAdmin] = useState(0);
   const [carregandoAdmin, setCarregandoAdmin] = useState(false);
   const [modoCadastro, setModoCadastro] = useState(false);
+  const [modoAcessoAdmin, setModoAcessoAdmin] = useState(false);
   const [nome, setNome] = useState('');
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
@@ -134,6 +135,9 @@ function Financeiro() {
       if (!response.ok || !data.success) throw new Error(data.message);
       const { token: novoToken, usuario } = data.data;
       tokenPendente = novoToken;
+      if (modoAcessoAdmin && usuario.perfil !== 'administrador') {
+        throw new Error('Esta conta não tem perfil de administrador.');
+      }
       let biometriaHabilitada = false;
       try {
         biometriaHabilitada = (await AsyncStorage.getItem(`${NATIVE_KEY_PREFIX}${usuario.id}`)) === 'true';
@@ -153,6 +157,7 @@ function Financeiro() {
 
       setUsuarioId(usuario.id);
       setUsuarioPerfil(usuario.perfil || 'usuario');
+      setPainelAdminAberto(modoAcessoAdmin);
       setToken(novoToken);
       setUsuarioNome(usuario.nome);
       setBiometriaAtiva(biometriaHabilitada);
@@ -170,7 +175,7 @@ function Financeiro() {
           });
           if (!logoutResponse.ok) throw new Error('o servidor não confirmou a revogação');
         } catch (logoutError) {
-          mensagem += ` A revogação remota não foi confirmada (${logoutError.message}); o acesso expira em até dois minutos.`;
+          mensagem += ` A revogação remota não foi confirmada (${logoutError.message}); o acesso expira em até 60 segundos.`;
         }
       }
       setErroAutenticacao(mensagem);
@@ -224,7 +229,7 @@ function Financeiro() {
         if (!response.ok) throw new Error('o servidor não confirmou a revogação');
       }
     } catch (error) {
-      falhas.push(`${error.message}; o acesso remoto expira em até dois minutos`);
+      falhas.push(`${error.message}; o acesso remoto expira em até 60 segundos`);
     } finally {
       encerrandoSessao.current = false;
     }
@@ -506,7 +511,13 @@ function Financeiro() {
         <View style={styles.authHeader}>
           <AText style={styles.emoji}>💰</AText>
           <AText accessibilityRole="header" style={styles.titulo}>Controle Financeiro</AText>
-          <AText style={styles.subtitulo}>{modoCadastro ? 'Crie sua conta' : 'Entre para ver suas despesas'}</AText>
+          <AText style={styles.subtitulo}>
+            {modoCadastro
+              ? 'Crie sua conta'
+              : modoAcessoAdmin
+                ? 'Acesso do administrador'
+                : 'Entre para ver suas despesas'}
+          </AText>
         </View>
         <View style={[styles.authCard, { backgroundColor: cores.superficie }]}>
           {modoCadastro && (
@@ -522,11 +533,37 @@ function Financeiro() {
           <AInput accessibilityLabel="Senha" style={styles.input} placeholder="Senha (mínimo 6 caracteres)" value={senha} onChangeText={setSenha} secureTextEntry />
           {erroAutenticacao ? <AText accessibilityRole="alert" style={styles.erroAutenticacao}>{erroAutenticacao}</AText> : null}
           <Pressable style={styles.botao} onPress={autenticar} disabled={carregando}>
-            {carregando ? <ActivityIndicator color="#fff" /> : <AText style={styles.botaoTexto}>{modoCadastro ? 'CRIAR CONTA' : 'ENTRAR'}</AText>}
+            {carregando
+              ? <ActivityIndicator color="#fff" />
+              : <AText style={styles.botaoTexto}>
+                {modoCadastro ? 'CRIAR CONTA' : modoAcessoAdmin ? 'ENTRAR COMO ADMINISTRADOR' : 'ENTRAR'}
+              </AText>}
           </Pressable>
-          <Pressable onPress={() => setModoCadastro(!modoCadastro)}>
-            <AText style={styles.link}>{modoCadastro ? 'Já tenho uma conta' : 'Criar uma conta'}</AText>
-          </Pressable>
+          {modoCadastro ? (
+            <Pressable onPress={() => setModoCadastro(false)}>
+              <AText style={styles.link}>Já tenho uma conta</AText>
+            </Pressable>
+          ) : (
+            <>
+              {!modoAcessoAdmin && (
+                <Pressable onPress={() => setModoCadastro(true)}>
+                  <AText style={styles.link}>Criar uma conta</AText>
+                </Pressable>
+              )}
+              <Pressable
+                accessibilityRole="button"
+                style={styles.linkBotao}
+                onPress={() => {
+                  setModoAcessoAdmin((atual) => !atual);
+                  setErroAutenticacao('');
+                }}
+              >
+                <AText style={styles.link}>
+                  {modoAcessoAdmin ? 'Voltar ao acesso comum' : 'Acesso do administrador'}
+                </AText>
+              </Pressable>
+            </>
+          )}
         </View>
         <AcessibilidadeModais
           painel={painel}

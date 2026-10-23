@@ -10,6 +10,7 @@ const Mensagem = require('../models/Mensagem');
 const PushToken = require('../models/PushToken');
 
 const categorias = ['Alimentação', 'Transporte', 'Lazer', 'Educação', 'Saúde', 'Outros'];
+const DURACAO_CONCESSAO_SESSAO_MS = 60 * 1000;
 
 function criarToken(usuario, sessaoId) {
   return jwt.sign({
@@ -25,7 +26,7 @@ async function criarSessao(usuario) {
   const agora = Date.now();
   const sessao = await Sessao.create({
     usuario: usuario._id,
-    ativaAte: new Date(agora + 2 * 60 * 1000),
+    ativaAte: new Date(agora + DURACAO_CONCESSAO_SESSAO_MS),
     expiraEm: new Date(agora + 7 * 24 * 60 * 60 * 1000)
   });
 
@@ -153,7 +154,7 @@ router.post('/auth/session/touch', autenticar, async (req, res) => {
   try {
     await Sessao.updateOne(
       { _id: req.sessaoId, revogadaEm: null },
-      { $set: { ativaAte: new Date(Date.now() + 2 * 60 * 1000) } }
+      { $set: { ativaAte: new Date(Date.now() + DURACAO_CONCESSAO_SESSAO_MS) } }
     );
     res.json({ success: true });
   } catch (error) {
